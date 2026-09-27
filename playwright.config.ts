@@ -15,5 +15,5 @@ export default defineConfig({
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: { locale: 'zh-CN', baseURL: 'http://127.0.0.1:5179', viewport: { width: 1440, height: 1000 }, screenshot: 'only-on-failure', trace: 'retain-on-failure', launchOptions: existsSync(chrome) ? { executablePath: chrome } : {} },
-  webServer: process.env.SAKUYA_EXTERNAL_TEST_SERVER ? undefined : { command: 'node scripts/dev.mjs', url: 'http://127.0.0.1:5179/api/health', reuseExistingServer: true, timeout: 45000, env: { SAKUYA_PORT: '8127', VITE_PORT: '5179', SAKUYA_DATA_DIR: `${process.cwd()}/.data/e2e-accounts` } },
+  webServer: process.env.SAKUYA_EXTERNAL_TEST_SERVER ? undefined : { command: 'node scripts/dev.mjs', url: 'http://127.0.0.1:5179/api/health', reuseExistingServer: false, timeout: 45000, env: { SAKUYA_PORT: '8127', VITE_PORT: '5179', SAKUYA_DATA_DIR: `${process.cwd()}/.data/e2e-accounts`, SAKUYA_ENV_FILE: `${process.cwd()}/.data/e2e-accounts/absent.env` } },
 });

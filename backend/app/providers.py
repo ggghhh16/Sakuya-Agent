@@ -12,6 +12,11 @@ from .settings import config, DEFAULT_HOSTS
 
 
 def validate_url(url):
+    source_destination(url)
+    return url
+
+
+def source_destination(url):
     parsed = urlparse(url)
     allowed = {x.strip().lower() for x in os.getenv('RESEARCH_ALLOWED_HOSTS', DEFAULT_HOSTS).split(',')}
     if parsed.scheme != 'https' or parsed.username or parsed.password or parsed.port not in (None, 443):
@@ -29,25 +34,30 @@ def validate_url(url):
     # Fake-IP DNS on proxy-based networks must not be treated as a direct destination.
     proxies = getproxies()
     proxy = (proxies.get('https') or proxies.get('all')) if not proxy_bypass(host) else None
-    if not proxy:
-        for info in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM):
-            if not ipaddress.ip_address(info[4][0]).is_global:
-                raise ValueError('不允许访问本机或私有网络资料地址')
-    return url
+    if proxy:
+        # Use exactly the proxy whose presence justified skipping local DNS.
+        return url, proxy, {}
+    addresses = [info[4][0] for info in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)]
+    if not addresses or any(not ipaddress.ip_address(ip).is_global for ip in addresses):
+        raise ValueError('不允许访问本机或私有网络资料地址')
+    # Pin the validated address: a second DNS lookup must not change the target.
+    destination = str(httpx.URL(url).copy_with(host=addresses[0]))
+    return destination, None, {'sni_hostname': host}
 
 
 def fetch_source(url):
-    with httpx.Client(timeout=20, follow_redirects=False, trust_env=True) as client:
-        for _ in range(4):
-            validate_url(url)
-            with client.stream('GET', url, headers={'User-Agent': 'SakuyaResearch/0.1'}) as response:
+    for _ in range(4):
+        destination, proxy, extensions = source_destination(url)
+        headers = {'User-Agent': 'SakuyaResearch/0.1', 'Host': urlparse(url).hostname}
+        with httpx.Client(timeout=20, follow_redirects=False, trust_env=False, proxy=proxy) as client:
+            with client.stream('GET', destination, headers=headers, extensions=extensions) as response:
                 if response.is_redirect:
                     from urllib.parse import urljoin
                     url = urljoin(url, response.headers.get('location', ''))
                     continue
                 response.raise_for_status()
                 body = bytearray()
-                for chunk in response.iter_bytes():
+                for chunk in response.iter_bytes(chunk_size=65536):
                     body.extend(chunk)
                     if len(body) > 2_000_000:
                         raise ValueError('资料超过 2 MB 读取上限')

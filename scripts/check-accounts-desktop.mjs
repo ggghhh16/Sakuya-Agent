@@ -11,7 +11,7 @@ const environment = { ...process.env, SAKUYA_TEST: '1', SAKUYA_PORT: '8130',
   SAKUYA_DATA_DIR: resolve('.data/desktop-accounts'), SAKUYA_DESKTOP_DATA: resolve(`.data/desktop-profile-accounts-${Date.now()}`),
   TURNSTILE_SITE_KEY: 'test-site-key', NO_PROXY: '127.0.0.1,localhost', NODE_USE_ENV_PROXY: '0' };
 for (const key of ['ELECTRON_RUN_AS_NODE', 'SAKUYA_DEV_URL', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY']) delete environment[key];
-const launchProcess = () => spawn(resolve(process.argv[2] || 'release-ui-v7/win-unpacked', 'Sakuya Agent.exe'), ['--remote-debugging-port=9237', '--remote-debugging-address=127.0.0.1'], { env: environment, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+const launchProcess = () => spawn(resolve(process.argv[2] || 'release-security/win-unpacked', 'Sakuya Agent.exe'), ['--remote-debugging-port=9237', '--remote-debugging-address=127.0.0.1'], { env: environment, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
 let processHandle = launchProcess();
 
 let ws, seq = 0;
@@ -48,7 +48,7 @@ try {
   await attach();
   await until(() => evaluate("document.body.innerText.includes('登录 Sakuya')"));
   const health = (await localGet('http://127.0.0.1:8130/api/health')).data;
-  assert.equal(health.protocol, 7);
+  assert.equal(health.protocol, 8);
   await until(() => evaluate("!!document.querySelector('script[data-turnstile]')"));
   assert.equal(await evaluate("document.body.innerText.includes('在浏览器中验证')"), false);
   assert.equal(await evaluate("window.sakuyaDesktop?.embedded"), true);

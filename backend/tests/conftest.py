@@ -8,6 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 temp = tempfile.TemporaryDirectory(prefix='sakuya-tests-')
 os.environ['SAKUYA_DATA_DIR'] = temp.name
+os.environ['SAKUYA_ENV_FILE'] = str(Path(temp.name) / 'absent.env')
 
 
 @pytest.fixture(autouse=True)

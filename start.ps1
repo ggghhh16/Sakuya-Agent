@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
-$application = Join-Path $PSScriptRoot 'release-ui-v7/win-unpacked/Sakuya Agent.exe'
+$application = Join-Path $PSScriptRoot 'release-security/win-unpacked/Sakuya Agent.exe'
 $releaseMarker = Join-Path $PSScriptRoot '.build/active-release.txt'
 if (Test-Path -LiteralPath $releaseMarker) {
   $candidate = (Get-Content -LiteralPath $releaseMarker -Raw).Trim()

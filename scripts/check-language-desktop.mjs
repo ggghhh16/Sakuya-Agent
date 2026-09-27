@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const release = process.argv[2] || 'release-ui-v7/win-unpacked';
+const release = process.argv[2] || 'release-security/win-unpacked';
 const profile = resolve(`.data/desktop-language-${Date.now()}`);
 mkdirSync(profile, { recursive: true });
 mkdirSync('test-results', { recursive: true });

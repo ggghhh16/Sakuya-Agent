@@ -1,4 +1,4 @@
-param([string]$ReleaseDirectory = 'release-ui-v7/win-unpacked')
+param([string]$ReleaseDirectory = 'release-security/win-unpacked')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $executable = Join-Path (Join-Path $projectRoot $ReleaseDirectory) 'Sakuya Agent.exe'

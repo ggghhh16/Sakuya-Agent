@@ -43,7 +43,7 @@
     "npmRebuild": false,
     "electronDist": "node_modules/electron/dist",
     "directories": {
-      "output": "release-ui-v7"
+      "output": "release-security"
     },
     "files": [
       "dist/**/*",

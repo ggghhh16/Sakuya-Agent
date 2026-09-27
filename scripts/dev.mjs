@@ -28,7 +28,7 @@ function stop(code = 0) {
   setTimeout(() => process.exit(code), 600).unref();
 }
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => stop());
-launch(python, ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', apiPort], resolve(root, 'backend'));
+launch(python, ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', apiPort, '--no-proxy-headers'], resolve(root, 'backend'));
 launch(python, ['-m', 'app.worker'], resolve(root, 'backend'));
 launch(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1']);
 if (process.argv.includes('--desktop')) {

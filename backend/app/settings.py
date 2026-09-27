@@ -5,8 +5,12 @@ from pathlib import Path
 from dotenv import load_dotenv
 from .db import DATA
 from . import db
+from .private_storage import protect
 
-load_dotenv(Path(os.getenv('SAKUYA_ENV_FILE', str(Path(__file__).resolve().parents[2] / '.env'))))
+ENV_FILE = Path(os.getenv('SAKUYA_ENV_FILE', str(Path(__file__).resolve().parents[2] / '.env')))
+if ENV_FILE.is_file():
+    protect(ENV_FILE)
+load_dotenv(ENV_FILE)
 CONFIG = DATA / 'provider.json'
 LOCK = threading.RLock()
 DEFAULT_HOSTS = 'docs.langchain.com,github.com,raw.githubusercontent.com,api.github.com,arxiv.org,export.arxiv.org,docs.python.org,fastapi.tiangolo.com,react.dev,developer.mozilla.org'
@@ -101,6 +105,11 @@ def save_config(values):
         for key, value in values.items():
             if key in ('base_url', 'model', 'providers', 'models', 'default_model_id') or value:
                 saved[key] = value
+        if 'providers' in saved:
+            # Migration keeps credentials in the provider catalog only. Deleting a
+            # provider must not leave another copy in the legacy top-level fields.
+            for key in ('api_key', 'base_url', 'model'):
+                saved.pop(key, None)
         path = config_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         temp = path.with_suffix('.tmp')

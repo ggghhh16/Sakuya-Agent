@@ -40,7 +40,7 @@ def main():
             # A healthy API without an executor must not appear ready.
             os._exit(2)
     threading.Thread(target=worker, daemon=True, name='sakuya-worker').start()
-    uvicorn.run(app, host='127.0.0.1', port=args.port, loop='asyncio', http='h11', ws='none', access_log=False)
+    uvicorn.run(app, host='127.0.0.1', port=args.port, loop='asyncio', http='h11', ws='none', access_log=False, proxy_headers=False)
 
 
 if __name__ == '__main__':

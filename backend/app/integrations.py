@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import Field
 from . import db, planner
+from .security import safe_error
 
 router = APIRouter(prefix='/api/integrations')
 PROVIDERS = {
@@ -259,10 +260,10 @@ def sync_collection(name, listing, start, end):
                 if name == 'google' and exc.status in (404, 410):
                     remote_by_id[link['id']] = {'id': link['id'], 'status': 'cancelled'}
                 else:
-                    errors.append({'id': entry['id'], 'message': str(exc)})
-                    db.patch(entry['id'], {'sync_state': 'error', 'sync_error': str(exc)})
+                    errors.append({'id': entry['id'], 'message': safe_error(exc)})
+                    db.patch(entry['id'], {'sync_state': 'error', 'sync_error': safe_error(exc)})
             except ValueError as exc:
-                errors.append({'id': entry['id'], 'message': str(exc)})
+                errors.append({'id': entry['id'], 'message': safe_error(exc)})
     for entry in entries:
         if name != 'google' and entry['kind'] != 'task':
             continue
@@ -362,8 +363,8 @@ def sync_collection(name, listing, start, end):
                 db.patch(entry['id'], {'remote': links})
             remote_by_id[result['id']] = result
         except ValueError as exc:
-            db.patch(entry['id'], {'sync_state': 'conflict' if '冲突' in str(exc) or '远程内容已修改' in str(exc) else 'error', 'sync_error': str(exc)})
-            errors.append({'id': entry['id'], 'message': str(exc)})
+            db.patch(entry['id'], {'sync_state': 'conflict' if '冲突' in str(exc) or '远程内容已修改' in str(exc) else 'error', 'sync_error': safe_error(exc)})
+            errors.append({'id': entry['id'], 'message': safe_error(exc)})
     linked = {e.get('remote', {}).get(name, {}).get('id'): e for e in db.all_items('planner_entry') if e['list_id'] == listing['id']}
     for remote in remote_by_id.values():
         entry = linked.get(remote['id'])
@@ -416,7 +417,7 @@ def synchronize(data: SyncIn):
                 try:
                     errors.extend(sync_collection(name, listing, data.start, data.end))
                 except ValueError as exc:
-                    errors.append({'id': listing['id'], 'message': str(exc)})
+                    errors.append({'id': listing['id'], 'message': safe_error(exc)})
             if not any(e['id'] == listing['id'] for e in errors):
                 for e in db.all_items('planner_entry'):
                     if e['list_id'] == listing['id'] and not any(error['id'] == e['id'] for error in errors) and e.get('sync_state') != 'conflict':

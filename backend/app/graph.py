@@ -9,6 +9,7 @@ from typing import TypedDict
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import interrupt
 from . import db, providers
+from .security import safe_error
 
 
 class State(TypedDict, total=False):
@@ -217,19 +218,6 @@ def report(state):
         text += '\n\n> 引用检查：部分编号无法映射到已保存资料，请人工核对。'
     # Link checks establish traceability, not whether the cited text supports every claim.
     return {'report': text, 'tokens': tokens}
-
-
-def safe_error(exc):
-    from .settings import config, catalog
-    text = str(exc)[:1500]
-    for key in ('api_key', 'search_key', 'github_token'):
-        secret = config().get(key)
-        if secret:
-            text = text.replace(secret, '[REDACTED]')
-    for provider in catalog()[0]:
-        if provider.get('api_key'):
-            text = text.replace(provider['api_key'], '[REDACTED]')
-    return text
 
 
 def chat(state):

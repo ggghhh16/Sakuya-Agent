@@ -2,7 +2,10 @@
 import json
 import re
 import subprocess
+import sqlite3
+import argparse
 from pathlib import Path
+from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -16,12 +19,44 @@ patterns = {
     "provider-key": re.compile(rb"\b(?:sk-[A-Za-z0-9_-]{24,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[A-Z0-9]{16})\b"),
     "user-home": re.compile(rb"[A-Za-z]:[\\/]+Users[\\/]+(?!Public\b|Default\b)[^\s\"'<>\\/]+", re.I),
 }
-private_path = re.compile(r"(^|/)(?:\.data|\.venv|node_modules|test-results|playwright-report|\.codex)(/|$)|\.(?:sqlite(?:-.*)?|db|pem|key|p12|pfx|lnk)$|(^|/)\.env(?:\..*)?$", re.I)
+private_path = re.compile(r"(^|/)(?:\.data|\.venv|\.tools|\.build|dist|release[^/]*|node_modules|test-results|playwright-report|\.codex|__pycache__)(/|$)|\.(?:sqlite3?(?:-.*)?|db(?:-.*)?|pem|key|p12|pfx|lnk|har)$|(^|/)(?:\.env(?:\..*)?|provider\.json|credentials\.json)$", re.I)
 findings = []
+local_secrets = set()
+parser = argparse.ArgumentParser()
+parser.add_argument('--package', type=Path, help='Also scan an unpacked distribution, including binary exact-secret matches')
+args = parser.parse_args()
+
+
+def add_secrets(value):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if re.search(r'(?:key|token|secret|password)$', key, re.I) and isinstance(item, str) and len(item) >= 8:
+                local_secrets.add(item.encode())
+            elif isinstance(item, (dict, list)):
+                add_secrets(item)
+    elif isinstance(value, list):
+        for item in value:
+            add_secrets(item)
+
+
+add_secrets(dotenv_values(ROOT / '.env'))
+workspace_dirs = [ROOT / '.data', *(ROOT / '.data/users').glob('*')]
+for path in (folder / 'provider.json' for folder in workspace_dirs if (folder / 'provider.json').is_file()):
+    add_secrets(json.loads(path.read_text('utf-8')))
+for path in (folder / 'workspace.sqlite' for folder in workspace_dirs if (folder / 'workspace.sqlite').is_file()):
+    con = sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)
+    try:
+        if con.execute("SELECT 1 FROM sqlite_master WHERE name='objects'").fetchone():
+            for (body,) in con.execute("SELECT body FROM objects WHERE kind='integration_secret'"):
+                add_secrets(json.loads(body))
+    finally:
+        con.close()
 
 
 def inspect(label, path, content):
-    if path != ".env.example" and private_path.search(path):
+    if any(secret in content for secret in local_secrets):
+        findings.append({'source': label, 'path': path, 'rule': 'matches-local-credential'})
+    if label != 'package' and path != ".env.example" and private_path.search(path):
         findings.append({"source": label, "path": path, "rule": "private-path"})
     if b"\x00" in content:
         return
@@ -58,5 +93,34 @@ if objects:
         if kind == b"blob":
             history_count += 1
             inspect(f"git:{oid[:12]}", path, content)
-print(json.dumps({"working_files": len(files), "history_blobs": history_count, "findings": findings}, ensure_ascii=False, indent=2))
+package_count = 0
+if args.package:
+    package_root = args.package.resolve(strict=True)
+    for path in package_root.rglob('*'):
+        if not path.is_file():
+            continue
+        package_count += 1
+        relative = path.relative_to(package_root).as_posix()
+        if re.search(r'(^|/)(?:\.env(?:\..*)?|\.data|provider\.json|credentials\.json|tests?|test-results)(/|$)|\.(?:sqlite3?(?:-.*)?|db(?:-.*)?|key|p12|pfx|log|har|lnk)$', relative, re.I):
+            findings.append({'source': 'package', 'path': relative, 'rule': 'private-path'})
+        inspect('package', relative, path.read_bytes())
+    # PyInstaller stores Python modules compressed: inspect the decompressed
+    # application code too, including co_filename local build path residues.
+    from PyInstaller.archive.readers import CArchiveReader
+    import types
+    archive = CArchiveReader(str(package_root / 'resources/backend/sakuya-service.exe'))
+    pyz = archive.open_embedded_archive('PYZ.pyz')
+    def inspect_code(name, code):
+        inspect('package', name, code.co_filename.encode())
+        for constant in code.co_consts:
+            if isinstance(constant, str):
+                inspect('package', name, constant.encode())
+            elif isinstance(constant, bytes):
+                inspect('package', name, constant)
+            elif isinstance(constant, types.CodeType):
+                inspect_code(name, constant)
+    for name in pyz.toc:
+        if name == 'app' or name.startswith('app.'):
+            inspect_code(name, pyz.extract(name))
+print(json.dumps({"working_files": len(files), "history_blobs": history_count, "package_files": package_count, "findings": findings}, ensure_ascii=False, indent=2))
 raise SystemExit(bool(findings))

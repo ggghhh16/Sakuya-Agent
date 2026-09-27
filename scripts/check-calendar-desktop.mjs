@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const release = process.argv[2] || 'release-ui-v7/win-unpacked';
+const release = process.argv[2] || 'release-security/win-unpacked';
 const profile = resolve(`.data/desktop-calendar-${Date.now()}`);
 mkdirSync(profile, {recursive: true});
 mkdirSync('test-results', {recursive: true});

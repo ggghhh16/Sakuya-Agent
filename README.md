@@ -89,7 +89,7 @@ node scripts/package.mjs
 
 This builds the web interface, bundles the Python backend with PyInstaller, packages Electron, and creates `Sakuya Desktop.lnk` and `Sakuya Web.lnk` in the project root.
 
-- **Desktop:** open `Sakuya Desktop.lnk`, or `release-ui-v7/win-unpacked/Sakuya Agent.exe`.
+- **Desktop:** open `Sakuya Desktop.lnk`, or `release-security/win-unpacked/Sakuya Agent.exe`.
 - **Browser:** open `Sakuya Web.lnk`. It starts the local service and opens `http://127.0.0.1:8120`.
 - `start.ps1` starts the packaged desktop app; `start.ps1 --web` starts browser mode.
 - Browser mode keeps the service in the system tray. Closing the browser does not stop it; exit Sakuya from the tray to stop the service it owns.

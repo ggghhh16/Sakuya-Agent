@@ -25,7 +25,8 @@ class LocalService {
   async start() {
     const existing = await probe(this.port);
     if (existing) {
-      if (existing.service === 'sakuya-agent' && existing.protocol === 7 && existing.worker_online) return;
+      // A public health response proves neither ownership nor authenticity.
+      // Never load a login page from a service this launcher did not start.
       throw new Error(`本机 ${this.port} 端口已被其他服务或未就绪的旧版本占用。请退出该服务后重新打开 Sakuya。`);
     }
     if (!existsSync(this.command)) throw new Error('缺少内置服务文件，请使用完整的 Sakuya 应用目录。');

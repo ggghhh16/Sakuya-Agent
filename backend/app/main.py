@@ -11,6 +11,7 @@ from urllib.parse import urlparse, quote
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
+from fastapi.exceptions import RequestValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, Field, ConfigDict
 from . import db, settings, auth
@@ -70,7 +71,15 @@ async def local_workspace_guard(request: Request, call_next):
 
 @app.exception_handler(ValueError)
 async def value_error(request, exc):
-    return JSONResponse({'detail': str(exc)}, status_code=422)
+    from .security import safe_error
+    return JSONResponse({'detail': safe_error(exc)}, status_code=422)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request, exc):
+    # Default input/ctx fields can contain passwords or entire request bodies.
+    return JSONResponse({'detail': [{'type': e['type'], 'loc': e['loc'], 'msg': '输入格式或内容无效'}
+                                    for e in exc.errors()]}, status_code=422)
 
 
 class StrictModel(BaseModel):
@@ -166,7 +175,7 @@ def require(identifier, kind):
 @app.get('/api/health')
 def health():
     pulse = db.DATA / 'worker.pulse'
-    return {'ok': True, 'service': 'sakuya-agent', 'protocol': 7, 'instance': os.getenv('SAKUYA_INSTANCE', ''), 'worker_online': pulse.exists() and time.time() - pulse.stat().st_mtime < 15, 'docker_available': bool(shutil.which('docker'))}
+    return {'ok': True, 'service': 'sakuya-agent', 'protocol': 8, 'instance': os.getenv('SAKUYA_INSTANCE', ''), 'worker_online': pulse.exists() and time.time() - pulse.stat().st_mtime < 15, 'docker_available': bool(shutil.which('docker'))}
 
 
 @app.get('/api/workspace')
@@ -269,6 +278,9 @@ async def stream_events(identifier: str, request: Request, after: int = 0):
     async def generate():
         cursor = after
         while not await request.is_disconnected():
+            user = auth.current_user(request)
+            if not user or user['id'] != request.state.user['id']:
+                break
             for event in db.events(identifier, cursor):
                 cursor = event['seq']
                 yield f'id: {cursor}\nevent: progress\ndata: {json.dumps(event, ensure_ascii=False)}\n\n'
@@ -365,12 +377,15 @@ def get_settings():
 
 @app.put('/api/settings')
 def update_settings(data: SettingsIn):
-    parsed = urlparse(data.base_url)
-    if not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise ValueError('请输入有效的模型 API 根地址')
-    if parsed.scheme != 'https' and not (parsed.scheme == 'http' and parsed.hostname in {'127.0.0.1', 'localhost'}):
-        raise ValueError('远程模型地址必须使用 HTTPS；本机模型可使用 HTTP')
-    return settings.save_config(data.model_dump())
+    from .model_settings import validate_base
+    base = validate_base(data.base_url)
+    with settings.LOCK:
+        if settings.read_saved().get('providers') is not None:
+            raise ValueError('请通过供应商设置修改模型连接')
+        old = settings.config()
+        if old.get('api_key') and old['base_url'].rstrip('/') != base and not data.api_key:
+            raise ValueError('更换 API 地址时请重新填写密钥')
+        return settings.save_config(data.model_dump() | {'base_url': base})
 
 
 @app.post('/api/settings/test')
@@ -406,3 +421,6 @@ def browser_verification_page():
 
 if dist.exists():
     app.mount('/', StaticFiles(directory=dist, html=True), name='web')
+
+from .security import RequestSafetyMiddleware
+app.add_middleware(RequestSafetyMiddleware)

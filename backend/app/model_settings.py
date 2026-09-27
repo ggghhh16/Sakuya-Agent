@@ -31,6 +31,10 @@ class DefaultIn(BaseModel):
 
 def validate_base(value):
     parsed = urlparse(value)
+    if any(ord(c) < 33 for c in value) or '\\' in value:
+        raise ValueError('请输入有效的模型 API 根地址')
+    if parsed.port is not None and not 1 <= parsed.port <= 65535:
+        raise ValueError('无效的模型 API 端口')
     if not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError('请输入有效的模型 API 根地址')
     if parsed.scheme != 'https' and not (parsed.scheme == 'http' and parsed.hostname in {'127.0.0.1', 'localhost'}):

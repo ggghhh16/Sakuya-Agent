@@ -3,6 +3,7 @@ import json
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse, Response
 from . import planner, integrations, db
+from .security import safe_error
 
 router = APIRouter()
 
@@ -83,7 +84,7 @@ async def endpoint(request: Request):
             content = await run_in_threadpool(call, params['name'], params.get('arguments', {}))
             result = {'content': [{'type': 'text', 'text': json.dumps(content, ensure_ascii=False)}], 'isError': False}
         except (ValueError, HTTPException, KeyError, TypeError) as exc:
-            message = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+            message = safe_error(exc.detail if isinstance(exc, HTTPException) else exc)
             result = {'content': [{'type': 'text', 'text': message}], 'isError': True}
     if result is None:
         return {'jsonrpc': '2.0', 'id': value['id'], 'error': {'code': -32601, 'message': 'Method not found'}}
@@ -127,7 +128,7 @@ def chat(messages, run_id):
             value = call(params['name'], params['arguments'])
             return {'content': [{'type': 'text', 'text': json.dumps(value, ensure_ascii=False)}]}
         except (ValueError, HTTPException) as exc:
-            return {'isError': True, 'content': [{'type': 'text', 'text': str(getattr(exc, 'detail', exc))}]}
+            return {'isError': True, 'content': [{'type': 'text', 'text': safe_error(getattr(exc, 'detail', exc))}]}
     tools = [{'type': 'function', 'function': {'name': t['name'], 'description': t['description'], 'parameters': t['inputSchema']}} for t in TOOLS]
     def complete_tools():
         last_assistant = next((i for i in range(len(messages) - 1, -1, -1) if messages[i]['role'] == 'assistant'), -1)

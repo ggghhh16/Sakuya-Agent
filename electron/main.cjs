@@ -21,6 +21,8 @@ if (process.env.SAKUYA_DESKTOP_DATA) app.setPath('userData', process.env.SAKUYA_
 
 const { safeExternal } = require('./external.cjs');
 async function ensureService() {
+  // The explicit development launcher owns its API/worker separately.
+  if (devUrl === 'http://127.0.0.1:5173') return;
   if (starting) return starting;
   const root = app.isPackaged ? resolve(dirname(process.execPath), '../..') : resolve(__dirname, '..');
   // Continue using this workspace's data when launched from its build output.

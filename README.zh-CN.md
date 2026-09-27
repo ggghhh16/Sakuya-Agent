@@ -20,14 +20,14 @@
 
 ## 日常使用：无需提前运行命令
 
-- 桌面端：双击项目根目录的 **Sakuya Desktop.lnk**，或 `release-ui-v7/win-unpacked/Sakuya Agent.exe`。
-- 普通账号工作区与记住登录新版位于 **`release-ui-v7/win-unpacked/Sakuya Agent.exe`**；桌面端在登录页内完成人机验证，不再跳转系统浏览器；真实 Cloudflare 通过状态仍需人工确认。旧版正在运行时，先从托盘选择退出，再使用根目录快捷方式重新打开。原 `.data` 会继续使用。
+- 桌面端：双击项目根目录的 **Sakuya Desktop.lnk**，或 `release-security/win-unpacked/Sakuya Agent.exe`。
+- 普通账号工作区与记住登录新版位于 **`release-security/win-unpacked/Sakuya Agent.exe`**；桌面端在登录页内完成人机验证，不再跳转系统浏览器；真实 Cloudflare 通过状态仍需人工确认。旧版正在运行时，先从托盘选择退出，再使用根目录快捷方式重新打开。原 `.data` 会继续使用。
 - 网页端：双击 **Sakuya Web.lnk**。应用会启动本地服务，随后打开默认浏览器，地址为 `http://127.0.0.1:8120`。
 - 网页模式在系统托盘后台运行；可以从托盘打开桌面端或选择「退出 Sakuya（停止本地服务）」。关闭浏览器不会自动停止服务。
 - 仅使用桌面端时，关闭窗口会停止由该应用启动的服务；如果已打开网页模式，关闭桌面窗口会保留后台服务。
 - 再次启动会复用已有实例，不重复启动后端，也不会关闭其他进程提供的服务。
 
-桌面包已包含 Python、后端依赖及网页资源，**日常使用不需要安装或手动运行 Node.js/Python**。复制到其他位置时保留整个 `release-ui-v7/win-unpacked` 文件夹，不要只复制 EXE。应用尚未签名。
+桌面包已包含 Python、后端依赖及网页资源，**日常使用不需要安装或手动运行 Node.js/Python**。复制到其他位置时保留整个 `release-security/win-unpacked` 文件夹，不要只复制 EXE。应用尚未签名。
 
 普通浏览器书签无法启动一个已经关闭的本地程序；服务退出后使用 **Sakuya Web.lnk** 重新打开网页版。没有添加开机自启或系统服务。
 
@@ -65,6 +65,8 @@ GITHUB_TOKEN=optional-read-only-token
 ```
 
 界面配置优先于环境变量。界面保存的密钥位于本机 `.data/provider.json`，**明文保存，仅用于本地个人工作区**；API 不向浏览器回传密钥，整个 `.data` 和 `.env` 已加入 `.gitignore`。不要上传它们。
+
+安全修复版会限制 `.data`、`.env` 与发布目录的 OS 访问权限；已有目录属于其他 Windows 账号时，需要先停止应用再执行 `scripts/protect-local-data.ps1`（PowerShell 7），脚本保留并校验恢复备份。审计结果、备份位置和验证边界见 [安全审计记录](docs/SECURITY-AUDIT.md)。
 
 关闭任务创建表单中的「演示模式」才能调用真实服务。未配置 Tavily 时仍可读取项目文档及用户提供的允许域名链接，但不会自动执行外部搜索。默认域名名单见设置页，可通过 `RESEARCH_ALLOWED_HOSTS` 扩展。
 
@@ -142,7 +144,7 @@ docker pull python:3.12-slim
 node scripts/package.mjs
 ```
 
-网页产物在 `dist`，本次 Windows 桌面产物在 `release-ui-v7/win-unpacked/Sakuya Agent.exe`。完整应用目录包含独立 Python 后端，不需要另开命令行启动服务。
+网页产物在 `dist`，本次 Windows 桌面产物在 `release-security/win-unpacked/Sakuya Agent.exe`。完整应用目录包含独立 Python 后端，不需要另开命令行启动服务。
 
 Electron 关闭 Node integration，开启 context isolation 与 sandbox；外部 HTTPS 链接由系统浏览器打开。
 
