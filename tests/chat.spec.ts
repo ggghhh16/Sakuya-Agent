@@ -1,0 +1,70 @@
+import { test, expect } from './fixtures';
+
+test('聊天首页支持多轮消息、刷新恢复和历史记录', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: '今天有什么想聊的？' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '发送消息' })).toBeDisabled();
+  const prompt = `测试聊天 ${Date.now()}`;
+  await page.getByRole('textbox', { name: '聊天消息' }).fill(prompt);
+  await page.getByRole('textbox', { name: '聊天消息' }).press('Enter');
+  await expect(page.locator('.assistant-content .markdown')).toContainText('这是演示回复');
+  await page.getByRole('textbox', { name: '聊天消息' }).fill('继续刚才的讨论');
+  await page.getByRole('button', { name: '发送消息' }).click();
+  await expect(page.locator('.assistant-content .markdown').last()).toContainText('保留 1 轮');
+  const url = page.url();
+  await page.reload();
+  await expect(page.locator('.user-message')).toHaveCount(2);
+  await page.getByRole('button', { name: '新对话', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '今天有什么想聊的？' })).toBeVisible();
+  await page.getByRole('button', { name: '打开聊天记录' }).click();
+  await page.getByRole('dialog', { name: '聊天记录' }).getByRole('button', { name: prompt, exact: true }).click();
+  await expect(page).toHaveURL(url);
+  await expect(page.locator('.user-message')).toHaveCount(2);
+  expect(errors).toEqual([]);
+});
+
+test('助手菜单支持键盘、收回动画、保留草稿并发起研究', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('textbox', { name: '聊天消息' }).fill('比较项目检索方案，并说明结论限制。');
+  await page.getByRole('button', { name: '选择助手，当前：聊天助手' }).click();
+  const menu = page.getByRole('dialog', { name: '选择助手' });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole('button', { name: /聊天助手/ })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: '选择助手，当前：深度研究' })).toBeVisible();
+  await expect(menu).not.toBeVisible();
+  await expect(page.getByRole('textbox', { name: '聊天消息' })).toHaveValue('比较项目检索方案，并说明结论限制。');
+  await page.getByRole('button', { name: '对话选项', exact: true }).click();
+  await expect(page.getByLabel('生成验证实验')).toBeVisible();
+  await expect(page.getByLabel('任务所属项目')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: '对话选项', exact: true })).toBeFocused();
+  await page.getByRole('button', { name: '发送消息' }).click();
+  await expect(page.locator('.detail-meta .status')).toHaveText('已完成');
+  await expect(page.locator('.page-header h1')).toHaveText('比较项目检索方案，并说明结论限制。');
+});
+
+test('窄屏菜单、弹窗退出和减少动画偏好', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByRole('button', { name: '选择助手，当前：聊天助手' }).click();
+  const menu = page.getByRole('dialog', { name: '选择助手' });
+  const box = await menu.boundingBox();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  await page.keyboard.press('Escape');
+  await expect(menu).not.toBeVisible();
+  await page.getByRole('button', { name: '打开聊天记录' }).click();
+  await expect(page.getByRole('dialog', { name: '聊天记录' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: '聊天记录' })).not.toBeVisible();
+  await expect(page.getByRole('button', { name: '打开聊天记录' })).toBeFocused();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.getByRole('button', { name: '对话选项', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: '对话选项' })).toBeVisible();
+  expect(await page.locator('.popover-presence').evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

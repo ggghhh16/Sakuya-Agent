@@ -1,0 +1,72 @@
+import { test, expect } from './fixtures';
+
+test('右键重命名和删除可保存，删除当前对话后可撤销', async ({ page, request }) => {
+  const name = `记录操作 ${Date.now()}`;
+  const response = await request.post('/api/chat', { headers: { 'X-Sakuya-Client': 'workspace' }, data: { prompt: name } });
+  const { conversation } = await response.json();
+  await page.goto(`/#chat/${conversation.id}`);
+  await page.getByRole('button', { name: '打开聊天记录' }).click();
+  const row = page.locator(`[data-conversation="${conversation.id}"]`);
+  await row.getByRole('button', { name, exact: true }).click({ button: 'right' });
+  await expect(page.getByRole('menu', { name: '对话操作' })).toBeVisible();
+  await page.screenshot({ path: 'test-results/history-menu.png', animations: 'disabled' });
+  await page.getByRole('menuitem', { name: '重命名', exact: true }).click();
+  await page.getByRole('textbox', { name: '对话名称' }).fill('  ');
+  await page.getByRole('button', { name: '保存名称' }).click();
+  await expect(page.getByRole('alert')).toHaveText('请输入对话名称');
+  await page.getByRole('textbox', { name: '对话名称' }).fill(name + ' 已重命名');
+  await page.getByRole('textbox', { name: '对话名称' }).press('Enter');
+  await expect(row.getByRole('button', { name: name + ' 已重命名', exact: true })).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: '打开聊天记录' }).click();
+  await row.getByRole('button', { name: name + ' 已重命名', exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '删除', exact: true }).click();
+  await expect(page).toHaveURL(/#chat$/);
+  await expect(page.locator('.toast')).toContainText('对话已删除');
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await page.getByRole('button', { name: '打开聊天记录' }).click();
+  await expect(row).toBeVisible();
+  // A second deletion remains absent after a full reload.
+  await row.getByRole('button', { name: name + ' 已重命名', exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '删除', exact: true }).click();
+  await expect(row).toHaveCount(0);
+  await page.reload();
+  await page.getByRole('button', { name: '打开聊天记录' }).click();
+  await expect(row).toHaveCount(0);
+});
+
+test('左键拖动保存顺序，不误打开对话；键盘菜单与取消重命名可用', async ({ page, request }) => {
+  const ids: string[] = [];
+  for (const title of ['排序 A', '排序 B', '排序 C']) {
+    const result = await request.post('/api/chat', { headers: { 'X-Sakuya-Client': 'workspace' }, data: { prompt: `${title} ${Date.now()}` } });
+    ids.unshift((await result.json()).conversation.id);
+  }
+  await page.goto('/');
+  await page.getByRole('button', { name: '打开聊天记录' }).click();
+  const rows = page.locator('.history-row');
+  const source = page.locator(`[data-conversation="${ids[2]}"] .history-open`);
+  const target = page.locator(`[data-conversation="${ids[0]}"] .history-open`);
+  const saved = page.waitForResponse(r => r.url().endsWith('/api/conversations/order') && r.request().method() === 'PUT');
+  await source.dragTo(target, { targetPosition: { x: 50, y: 3 } });
+  expect((await saved).status()).toBe(200);
+  await expect(rows.first()).toHaveAttribute('data-conversation', ids[2]);
+  await expect(page.getByRole('dialog', { name: '聊天记录' })).toBeVisible();
+  expect(new URL(page.url()).hash).toBe('');
+  await page.reload();
+  await page.getByRole('button', { name: '打开聊天记录' }).click();
+  await expect(rows.first()).toHaveAttribute('data-conversation', ids[2]);
+  await source.focus();
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).not.toBeVisible();
+  await expect(page.getByRole('dialog', { name: '聊天记录' })).toBeVisible();
+  await expect(source).toBeFocused();
+  await page.keyboard.press('Shift+F10');
+  await page.getByRole('menuitem', { name: '重命名', exact: true }).click();
+  await page.getByRole('textbox', { name: '对话名称' }).fill('不保存的修改');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('textbox', { name: '对话名称' })).toHaveCount(0);
+  await expect(source).toBeFocused();
+  await expect(source).not.toContainText('不保存的修改');
+});

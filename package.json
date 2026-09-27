@@ -1,0 +1,73 @@
+{
+  "name": "sakuya-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local research, diagnosis and technical support agent workspace",
+  "author": "Sakuya Agent contributors",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "vite --host 127.0.0.1",
+    "build": "node scripts/build.mjs",
+    "preview": "vite preview --host 127.0.0.1",
+    "desktop": "electron .",
+    "desktop:package": "node scripts/package.mjs",
+    "test:e2e": "playwright test",
+    "test:api": ".venv/Scripts/python.exe -m pytest backend/tests -q",
+    "start:web": "electron . --web"
+  },
+  "main": "electron/main.cjs",
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.2",
+    "lucide-react": "^0.468.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.1",
+    "@types/node": "^24.5.2",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.3",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.0.12",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.7"
+  },
+  "build": {
+    "appId": "dev.sakuya.agent",
+    "productName": "Sakuya Agent",
+    "npmRebuild": false,
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "release-user-workspace"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false
+    },
+    "extraResources": [
+      {
+        "from": ".build/backend/sakuya-service",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "dist",
+        "to": "web",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
+  }
+}

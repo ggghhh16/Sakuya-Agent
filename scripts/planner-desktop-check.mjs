@@ -1,0 +1,47 @@
+import assert from 'node:assert/strict';
+import { _electron as electron } from '@playwright/test';
+import { createServer } from 'node:net';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { resolve, join } from 'node:path';
+
+await mkdir('.data/planner-desktop-tests', {recursive:true});
+const folder = await mkdtemp(resolve('.data/planner-desktop-tests/run-'));
+const server = createServer();
+await new Promise(r => server.listen(0, '127.0.0.1', r));
+const port = server.address().port;
+await new Promise(r => server.close(r));
+const env = {...process.env, SAKUYA_PORT:String(port), SAKUYA_DATA_DIR:join(folder,'workspace'), SAKUYA_DESKTOP_DATA:join(folder,'electron'), SAKUYA_TEST:'1', NO_PROXY:'127.0.0.1,localhost', NODE_USE_ENV_PROXY:'0'};
+for (const name of ['ELECTRON_RUN_AS_NODE','SAKUYA_DEV_URL','HTTP_PROXY','HTTPS_PROXY','ALL_PROXY']) delete env[name];
+const app = await electron.launch({executablePath:resolve('release-planner/win-unpacked/Sakuya Agent.exe'),args:[],env,timeout:30000});
+try {
+  const win = await app.firstWindow();
+  win.setDefaultTimeout(20000);
+  const errors=[];win.on('pageerror',e=>errors.push(e.message));
+  await win.getByRole('heading',{name:'今天有什么想聊的？'}).waitFor({timeout:45000});
+  await win.getByRole('button',{name:'打开日历',exact:true}).click();
+  await win.getByRole('button',{name:'新建日程',exact:true}).click();
+  const dialog = win.getByRole('dialog',{name:'新建日程',exact:true});
+  await dialog.getByLabel('标题').fill('桌面日历验证');
+  await dialog.getByRole('button',{name:'保存',exact:true}).click();
+  await dialog.waitFor({state:'hidden'});
+  const url=`http://127.0.0.1:${port}`;
+  const state = await fetch(url+'/api/planner').then(r=>r.json());
+  assert(state.entries.some(e=>e.title==='桌面日历验证'));
+  const mcp = await fetch(url+'/api/mcp/planner',{method:'POST',headers:{'Content-Type':'application/json','X-Sakuya-Client':'workspace','Accept':'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list'})}).then(r=>r.json());
+  assert(mcp.result.tools.some(t=>t.name==='ticktick_list'));
+  await win.reload();
+  await win.locator('[data-entry-id]').first().waitFor();
+  await win.screenshot({path:'test-results/planner-desktop.png'});
+  await win.getByRole('button',{name:'连接设置',exact:true}).click();
+  const settings=win.getByRole('dialog',{name:'日历与任务连接'});
+  await settings.getByRole('button',{name:'滴答清单',exact:true}).click();
+  await settings.getByLabel('账号版本').selectOption('ticktick');
+  await settings.getByLabel('个人 API Token').waitFor();
+  assert((await settings.getByLabel('OAuth 回调地址').inputValue()).endsWith('/ticktick/callback'));
+  const security=await app.evaluate(({BrowserWindow})=>{const p=BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences();return {sandbox:p.sandbox,contextIsolation:p.contextIsolation,nodeIntegration:p.nodeIntegration};});
+  assert.deepEqual(security,{sandbox:true,contextIsolation:true,nodeIntegration:false});
+  assert.deepEqual(errors,[]);
+  const result={desktop:'passed',packaged:true,checks:['cold start','planner CRUD','persistence','MCP tool discovery','TickTick region and token UI'],security};
+  await writeFile('test-results/planner-desktop.json',JSON.stringify(result,null,2));
+  console.log(JSON.stringify(result));
+} finally { await app.close(); }
