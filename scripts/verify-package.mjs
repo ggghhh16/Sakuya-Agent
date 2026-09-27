@@ -2,7 +2,7 @@ import { listPackage, extractFile } from '@electron/asar';
 import assert from 'node:assert/strict';
 import { normalize } from 'node:path';
 import { existsSync, readdirSync } from 'node:fs';
-const release = process.argv[2] || 'release-user-workspace/win-unpacked';
+const release = process.argv[2] || 'release-ui-v7/win-unpacked';
 const archive = `${release}/resources/app.asar`;
 const files = listPackage(archive).map(p => p.replaceAll('\\', '/'));
 assert(files.includes('/dist/index.html'), 'Missing built frontend');

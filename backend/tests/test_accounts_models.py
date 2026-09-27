@@ -36,16 +36,16 @@ def test_anonymous_cannot_read_or_modify_workspace(client):
 @pytest.mark.parametrize('password', ['shortAa', 'lowercaseonly', 'UPPERCASEONLY', '12345678'])
 def test_password_strength_enforced_server_side(client, password):
     code()
-    assert client.post('/api/auth/register', json={'email': 'new@example.com', 'password': password, 'code': '123456'}).status_code == 422
+    assert client.post('/api/auth/register', json={'username': 'NewUser', 'email': 'new@example.com', 'password': password, 'code': '123456'}).status_code == 422
 
 
 def test_register_requires_code_and_cannot_self_promote(client):
-    body = {'email': 'New@Example.com', 'password': 'GoodPassword', 'code': '123456'}
+    body = {'username': 'NewUser', 'email': 'New@Example.com', 'password': 'GoodPassword', 'code': '123456'}
     assert client.post('/api/auth/register', json=body).status_code == 400
     code()
     assert client.post('/api/auth/register', json=body | {'role': 'admin'}).status_code == 422
     assert client.post('/api/auth/register', json=body).status_code == 201
-    assert client.post('/api/auth/register', json=body).status_code == 400
+    assert client.post('/api/auth/register', json=body).status_code == 409
     with db.connect() as con:
         user = con.execute("SELECT * FROM users WHERE email='new@example.com'").fetchone()
         assert user['role'] == 'user'
@@ -54,7 +54,7 @@ def test_register_requires_code_and_cannot_self_promote(client):
 
 
 def test_code_expiry_and_five_attempt_limit(client):
-    body = {'email': 'new@example.com', 'password': 'GoodPassword', 'code': '000000'}
+    body = {'username': 'NewUser', 'email': 'new@example.com', 'password': 'GoodPassword', 'code': '000000'}
     code()
     for _ in range(5):
         assert client.post('/api/auth/register', json=body).status_code == 400
@@ -71,7 +71,7 @@ def test_human_verification_and_email_rate_limit(client, monkeypatch):
     assert result.status_code == 200 and len(sent[0][1]) == 6
     assert sent[0][1] not in result.text
     assert client.post('/api/auth/email-code', json={'email': 'new@example.com', 'human_token': 'test'}).status_code == 429
-    assert client.post('/api/auth/register', json={'email': 'new@example.com', 'password': 'GoodPassword', 'code': sent[0][1]}).status_code == 201
+    assert client.post('/api/auth/register', json={'username': 'NewUser', 'email': 'new@example.com', 'password': 'GoodPassword', 'code': sent[0][1]}).status_code == 201
 
 
 def test_turnstile_checks_action_hostname_and_fails_closed(monkeypatch):

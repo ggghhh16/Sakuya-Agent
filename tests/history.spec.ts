@@ -21,7 +21,7 @@ test('右键重命名和删除可保存，删除当前对话后可撤销', async
   await page.getByRole('button', { name: '打开聊天记录' }).click();
   await row.getByRole('button', { name: name + ' 已重命名', exact: true }).click({ button: 'right' });
   await page.getByRole('menuitem', { name: '删除', exact: true }).click();
-  await expect(page).toHaveURL(/#chat$/);
+  await expect(page).toHaveURL(/#work$/);
   await expect(page.locator('.toast')).toContainText('对话已删除');
   await page.getByRole('button', { name: '撤销', exact: true }).click();
   await page.getByRole('button', { name: '打开聊天记录' }).click();
@@ -47,7 +47,15 @@ test('左键拖动保存顺序，不误打开对话；键盘菜单与取消重�
   const source = page.locator(`[data-conversation="${ids[2]}"] .history-open`);
   const target = page.locator(`[data-conversation="${ids[0]}"] .history-open`);
   const saved = page.waitForResponse(r => r.url().endsWith('/api/conversations/order') && r.request().method() === 'PUT');
-  await source.dragTo(target, { targetPosition: { x: 50, y: 3 } });
+  await source.hover();
+  const origin = (await source.boundingBox())!;
+  const destination = (await target.boundingBox())!;
+  await page.mouse.move(origin.x + 50, origin.y + origin.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(origin.x + 55, origin.y + origin.height / 2, { steps: 3 });
+  await page.mouse.move(destination.x + 50, destination.y + 5, { steps: 10 });
+  await page.mouse.move(destination.x + 51, destination.y + 5);
+  await page.mouse.up();
   expect((await saved).status()).toBe(200);
   await expect(rows.first()).toHaveAttribute('data-conversation', ids[2]);
   await expect(page.getByRole('dialog', { name: '聊天记录' })).toBeVisible();

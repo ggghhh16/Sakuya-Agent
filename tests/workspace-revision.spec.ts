@@ -1,0 +1,54 @@
+import { test, expect } from './fixtures';
+
+test('工作主界面、对称竖线、拖动分栏与权限选择', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: '今天想做些什么？' })).toBeVisible();
+  await expect(page.locator('.mode-switch,.model-controls,.planner-chat-toggle')).toHaveCount(0);
+  const left = page.getByRole('button', { name: '展开聊天记录' });
+  const right = page.getByRole('button', { name: '打开工作功能' });
+  const lb = (await left.boundingBox())!, rb = (await right.boundingBox())!;
+  expect(Math.abs(lb.x - (1440 - rb.x - rb.width))).toBeLessThan(2);
+  expect(rb.x + rb.width).toBe(1440);
+  await left.hover();
+  await expect(page.getByRole('dialog', { name: '聊天记录' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await right.hover();
+  await page.getByRole('navigation', { name: '工作功能' }).getByRole('button', { name: '日历', exact: true }).click();
+  const divider = page.getByRole('separator', { name: '调整左右区域比例' });
+  const initial = (await page.locator('.chat-scroll').boundingBox())!.width;
+  const rect = (await divider.boundingBox())!;
+  await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  await page.mouse.down(); await page.mouse.move(rect.x + 170, rect.y + rect.height / 2, { steps: 10 }); await page.mouse.up();
+  expect((await page.locator('.chat-scroll').boundingBox())!.width).toBeGreaterThan(initial + 100);
+  await divider.focus(); await page.keyboard.press('Home'); await expect(divider).toHaveAttribute('aria-valuenow', '30');
+  await page.keyboard.press('End'); await expect(divider).toHaveAttribute('aria-valuenow', '70');
+  await page.reload(); await expect(divider).toHaveAttribute('aria-valuenow', '70');
+  await divider.focus(); await page.keyboard.press('ArrowLeft'); await expect(divider).toHaveAttribute('aria-valuenow', '68');
+  await expect(page.locator('.work-feature .planner-layout')).toHaveCSS('min-width', '680px');
+  await page.screenshot({ path: 'test-results/work-resizable.png', fullPage: true, animations: 'disabled' });
+  await page.getByRole('button', { name: '收起功能区域' }).click();
+  await page.getByRole('button', { name: '权限批准模式', exact: true }).click();
+  await page.getByRole('button', { name: /每次询问.*资料检索/ }).click();
+  await expect(page.locator('.approval-trigger')).toHaveText('每次询问');
+  await page.locator('.approval-popover').waitFor({ state: 'detached' });
+  await page.locator('.language-switch').click(); await page.getByRole('button', { name: 'English', exact: true }).click();
+  await expect(page.locator('.approval-trigger')).toHaveText('Ask every time');
+  await page.getByRole('button', { name: 'Model and reasoning' }).click();
+  await page.screenshot({ path: 'test-results/composer-new.png', fullPage: true, animations: 'disabled' });
+});
+
+test('注册用户名与 90 秒倒计时，移除重复密码提示', async ({ page, context }) => {
+  await context.clearCookies();
+  await page.route('**/api/auth/config', route => route.fulfill({ json: { site_key: 'test', registration_ready: true } }));
+  await page.route('https://challenges.cloudflare.com/turnstile/v0/api.js*', route => route.fulfill({ contentType: 'application/javascript', body: `window.turnstile = {render(el,o){setTimeout(()=>o.callback('mock'),20);return 'test'},remove(){}};` }));
+  await page.route('**/api/auth/email-code', route => route.fulfill({ json: { ok: true, retry_after: 90 } }));
+  await page.goto('/');
+  await expect(page.getByLabel('用户名或邮箱', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '注册', exact: true }).first().click();
+  await page.getByLabel('用户名', { exact: true }).fill('NewUser');
+  await page.getByLabel('邮箱', { exact: true }).fill('test@example.com');
+  await expect(page.getByText('密码需同时满足长度及大小写要求')).toHaveCount(0);
+  await page.getByRole('button', { name: '发送验证码', exact: true }).click();
+  await expect(page.getByRole('button', { name: /90 秒后重发|89 秒后重发/ })).toBeDisabled();
+  await page.screenshot({ path: 'test-results/username-register.png', fullPage: true });
+});

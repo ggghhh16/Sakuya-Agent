@@ -183,7 +183,7 @@ def transition_run(identifier, allowed, changes):
             siblings = con.execute("SELECT body FROM objects WHERE kind='run' AND id!=?", (identifier,)).fetchall()
             for sibling in siblings:
                 turn = json.loads(sibling['body'])
-                if turn.get('conversation_id') == item['conversation_id'] and (turn['created_at'] > item['created_at'] or turn['status'] in {'queued', 'running'}):
+                if turn.get('conversation_id') == item['conversation_id'] and (turn['created_at'] > item['created_at'] or turn['status'] in {'queued', 'running', 'waiting'}):
                     raise ValueError('该回复之后已有新消息，请在对话末尾重新提问')
         item.update(**changes, updated_at=now())
         con.execute('UPDATE objects SET body=?,updated_at=? WHERE id=?',
@@ -208,7 +208,7 @@ def queue_chat(prompt, conversation_id, mode, planner_tools=False, time_zone='UT
         rows = con.execute("SELECT body FROM objects WHERE kind='run' ORDER BY created_at").fetchall()
         turns = [json.loads(r['body']) for r in rows]
         turns = [r for r in turns if r.get('conversation_id') == conversation['id']]
-        if any(r['status'] in {'queued', 'running'} for r in turns):
+        if any(r['status'] in {'queued', 'running', 'waiting'} for r in turns):
             raise ValueError('请等待当前回复完成，或先停止生成')
         history = []
         # Keep demo responses out of real model context when switching modes.
@@ -246,7 +246,7 @@ def change_conversation(identifier, action, title=None):
             # Keep cancelled records so an in-flight worker can safely finish.
             for row in con.execute("SELECT body FROM objects WHERE kind='run'").fetchall():
                 run = json.loads(row['body'])
-                if run.get('conversation_id') == identifier and run['status'] in {'queued', 'running'}:
+                if run.get('conversation_id') == identifier and run['status'] in {'queued', 'running', 'waiting'}:
                     run.update(status='cancelled', updated_at=now())
                     con.execute('UPDATE objects SET body=?,updated_at=? WHERE id=?', (json.dumps(run, ensure_ascii=False), run['updated_at'], run['id']))
         elif action == 'restore':

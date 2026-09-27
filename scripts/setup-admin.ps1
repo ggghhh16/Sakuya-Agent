@@ -9,7 +9,7 @@ $python = Join-Path $projectRoot '.venv/Scripts/python.exe'
 if (Test-Path -LiteralPath $python) {
     & $python -m app.auth $Email
 } else {
-    $service = Join-Path $projectRoot 'release-user-workspace/win-unpacked/resources/backend/sakuya-service.exe'
+    $service = Join-Path $projectRoot 'release-ui-v4/win-unpacked/resources/backend/sakuya-service.exe'
     if (-not (Test-Path -LiteralPath $service)) { throw '找不到本机 Python 或已打包后端，请先完成构建。' }
     & $service --admin-email $Email
 }

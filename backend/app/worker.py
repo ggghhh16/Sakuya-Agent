@@ -46,7 +46,7 @@ def execute(run):
                 return
             if '__interrupt__' in result:
                 db.transition_run(run['id'], {'running'}, {'status': 'waiting', 'approval': result['__interrupt__'][0].value, 'resume_decision': None})
-                db.event(run['id'], 'approval', '实验脚本已准备好，等待你确认或跳过')
+                db.event(run['id'], 'approval', '操作已准备好，等待你批准或拒绝')
             else:
                 db.transition_run(run['id'], {'running'}, {'status': 'completed', 'report': result.get('report', ''), 'tokens': result.get('tokens', 0), 'resume_decision': None, 'error': None})
                 db.event(run['id'], 'completed', '报告已生成，来源与执行记录已保存')

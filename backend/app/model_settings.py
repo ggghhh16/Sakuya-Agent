@@ -22,6 +22,7 @@ class ModelIn(BaseModel):
     provider_id: str = Field(max_length=100)
     name: str = Field(min_length=1, max_length=150)
     reasoning: bool = False
+    context_window: int | None = Field(default=None, ge=1024, le=10000000)
 
 
 class DefaultIn(BaseModel):
@@ -80,7 +81,18 @@ def discover_models(identifier: str):
             response = client.get(provider['base_url'] + '/models', headers={'Authorization': 'Bearer ' + provider['api_key']})
             response.raise_for_status()
             models = response.json()['data']
-            return {'models': sorted({m['id'] for m in models if isinstance(m.get('id'), str) and 0 < len(m['id']) <= 150})[:2000]}
+            valid = [m for m in models if isinstance(m, dict) and isinstance(m.get('id'), str) and 0 < len(m['id']) <= 150]
+            names = sorted({m['id'] for m in valid})[:2000]
+            capacities = {}
+            for model in valid:
+                # /models metadata varies between compatible providers. Do not
+                # confuse max output tokens with total context capacity.
+                for field in ('context_length', 'context_window', 'max_context_length', 'max_model_len'):
+                    value = model.get(field)
+                    if type(value) is int and 1024 <= value <= 10000000:
+                        capacities[model['id']] = value
+                        break
+            return {'models': names, 'context_windows': {name: capacities[name] for name in names if name in capacities}}
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
         raise HTTPException(422, '无法读取模型列表；请检查地址、密钥及 /models 支持情况，也可以手动填写模型 ID')
 

@@ -37,12 +37,13 @@
     "vite": "^7.1.7"
   },
   "build": {
+    "afterPack": "scripts/after-pack.cjs",
     "appId": "dev.sakuya.agent",
     "productName": "Sakuya Agent",
     "npmRebuild": false,
     "electronDist": "node_modules/electron/dist",
     "directories": {
-      "output": "release-user-workspace"
+      "output": "release-ui-v7"
     },
     "files": [
       "dist/**/*",

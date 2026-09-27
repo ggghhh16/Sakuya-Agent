@@ -65,6 +65,10 @@ def plan(state):
 
 def collect(state):
     run = run_data(state)
+    if run['mode'] == 'live' and run.get('approval_mode') == 'ask':
+        decision = interrupt({'kind': 'sources', 'message': '是否读取资料并执行本轮检索？', 'script': '\n'.join([*run.get('urls', []), *state.get('queries', [])])})
+        if decision != 'approve':
+            return {'sources': state.get('sources', []), 'round': state.get('round', 0) + 1}
     round_number = state.get('round', 0) + 1
     db.event(run['id'], 'collect', f'第 {round_number} 轮：收集资料与原文')
     sources = list(state.get('sources', []))
@@ -146,7 +150,7 @@ def experiment_plan(state):
 
 
 def approve(state):
-    decision = interrupt({'kind': 'experiment', 'message': '请审核脚本。真实模式会在禁网 Docker 容器内执行；跳过也能继续生成报告。', 'script': state['script']})
+    decision = 'approve' if run_data(state).get('approval_mode') == 'auto' else interrupt({'kind': 'experiment', 'message': '请审核脚本。真实模式会在禁网 Docker 容器内执行；跳过也能继续生成报告。', 'script': state['script']})
     run = run_data(state)
     if decision != 'approve':
         result = '用户跳过实验，未执行代码。'

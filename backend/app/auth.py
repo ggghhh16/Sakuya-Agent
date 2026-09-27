@@ -36,7 +36,42 @@ def init():
         CREATE TABLE IF NOT EXISTS browser_checks (
           id TEXT PRIMARY KEY, secret_hash TEXT UNIQUE NOT NULL, action TEXT NOT NULL,
           expires REAL NOT NULL, verified INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE IF NOT EXISTS usernames (
+          user_id TEXT PRIMARY KEY, name TEXT NOT NULL, normalized TEXT UNIQUE NOT NULL);
         ''')
+        for row in con.execute('SELECT id,email FROM users').fetchall():
+            ensure_username(con, row)
+
+
+def normalize_username(value):
+    value = value.strip()
+    if not re.fullmatch(r'[\w-]{3,32}', value, re.UNICODE):
+        raise ValueError('用户名须为 3–32 位字母、数字、下划线或短横线')
+    return value
+
+
+def ensure_username(con, row):
+    existing = con.execute('SELECT name FROM usernames WHERE user_id=?', (row['id'],)).fetchone()
+    if existing:
+        return existing['name']
+    base = re.sub(r'[^\w-]', '_', row['email'].split('@')[0])[:24]
+    if len(base) < 3:
+        base = 'user_' + base
+    name = base
+    suffix = 1
+    while con.execute('SELECT 1 FROM usernames WHERE normalized=?', (name.casefold(),)).fetchone():
+        suffix += 1
+        name = f'{base}_{suffix}'
+    con.execute('INSERT INTO usernames VALUES (?,?,?)', (row['id'], name, name.casefold()))
+    return name
+
+
+def display_name(identifier):
+    with db.connect(shared=True) as con:
+        row = con.execute('SELECT id,email FROM users WHERE id=? OR email=?', (identifier, identifier)).fetchone()
+        if row:
+            return ensure_username(con, row)
+    return '已注销用户' if '@' in identifier else identifier
 
 
 def normalize_email(email):
@@ -58,7 +93,9 @@ def password_hash(password, salt=None):
 
 
 def public_user(row):
-    return {k: row[k] for k in ('id', 'email', 'role')}
+    with db.connect(shared=True) as con:
+        name = ensure_username(con, row)
+    return {k: row[k] for k in ('id', 'email', 'role')} | {'username': name}
 
 
 def current_user(request):
@@ -153,12 +190,17 @@ class EmailCodeIn(BaseModel):
 
 class RegisterIn(BaseModel):
     model_config = ConfigDict(extra='forbid')
+    username: str = Field(min_length=3, max_length=32)
     email: str = Field(max_length=254)
     password: str = Field(min_length=8, max_length=128)
     code: str = Field(pattern=r'^\d{6}$')
 
 
-class LoginIn(EmailCodeIn):
+class LoginIn(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    email: str = Field(default='', max_length=254)
+    identifier: str = Field(default='', max_length=254)
+    human_token: str = Field(min_length=1, max_length=2048)
     password: str = Field(min_length=1, max_length=128)
     remember: bool = False
 
@@ -245,7 +287,7 @@ def email_code(data: EmailCodeIn, request: Request):
     email = normalize_email(data.email)
     limit('send-ip:' + request.client.host, 10, 3600)
     verify_human(data.human_token, 'register')
-    limit('send-email:' + email, 1, 60)
+    limit('send-email:' + email, 1, 90)
     code, salt = f'{secrets.randbelow(1_000_000):06}', secrets.token_hex(16)
     digest = hashlib.sha256((salt + code).encode()).hexdigest()
     # Reserve before SMTP; an old code cannot become valid again on delivery failure.
@@ -257,18 +299,21 @@ def email_code(data: EmailCodeIn, request: Request):
         with db.connect(shared=True) as con:
             con.execute('DELETE FROM email_codes WHERE email=? AND digest=?', (email, digest))
         raise
-    return {'ok': True, 'retry_after': 60}
+    return {'ok': True, 'retry_after': 90}
 
 
 @router.post('/register', status_code=201)
 def register(data: RegisterIn, request: Request):
     email = normalize_email(data.email)
+    username = normalize_username(data.username)
     validate_password(data.password)
     limit('register-ip:' + request.client.host, 30, 3600)
     encoded = password_hash(data.password)
     error = None
     with db.connect(shared=True) as con:
         con.execute('BEGIN IMMEDIATE')
+        if con.execute('SELECT 1 FROM usernames WHERE normalized=?', (username.casefold(),)).fetchone():
+            raise HTTPException(409, '该用户名已被使用')
         row = con.execute('SELECT * FROM email_codes WHERE email=?', (email,)).fetchone()
         if not row or row['expires'] < time.time() or row['attempts'] >= 5:
             error = '验证码已失效，请重新获取'
@@ -277,7 +322,9 @@ def register(data: RegisterIn, request: Request):
             error = '邮箱验证码不正确'
         else:
             try:
-                con.execute('INSERT INTO users VALUES (?,?,?,?,?)', (db.uid('user'), email, encoded, 'user', db.now()))
+                user_id = db.uid('user')
+                con.execute('INSERT INTO users VALUES (?,?,?,?,?)', (user_id, email, encoded, 'user', db.now()))
+                con.execute('INSERT INTO usernames VALUES (?,?,?)', (user_id, username, username.casefold()))
             except sqlite3.IntegrityError:
                 error = '该邮箱已注册，请登录'
             con.execute('DELETE FROM email_codes WHERE email=?', (email,))
@@ -288,16 +335,18 @@ def register(data: RegisterIn, request: Request):
 
 @router.post('/login')
 def login(data: LoginIn, request: Request, response: Response):
-    email = normalize_email(data.email)
+    identifier = (data.identifier or data.email).strip().casefold()
+    if not identifier:
+        raise HTTPException(400, '请输入用户名或邮箱')
     limit('login-ip:' + request.client.host, 30, 900)
-    limit('login-email:' + email, 10, 900)
+    limit('login-email:' + identifier, 10, 900)
     verify_human(data.human_token, 'login')
     with db.connect(shared=True) as con:
-        row = con.execute('SELECT * FROM users WHERE email=?', (email,)).fetchone()
+        row = con.execute('SELECT u.* FROM users u LEFT JOIN usernames n ON n.user_id=u.id WHERE u.email=? OR n.normalized=?', (identifier, identifier)).fetchone()
     expected = row['password'] if row else password_hash('InvalidPassword')
     candidate = password_hash(data.password, expected.split(':')[0])
     if not row or not hmac.compare_digest(candidate, expected):
-        raise HTTPException(401, '邮箱或密码不正确')
+        raise HTTPException(401, '用户名、邮箱或密码不正确')
     old = request.cookies.get(COOKIE, '')
     with db.connect(shared=True) as con:
         con.execute('DELETE FROM sessions WHERE token=?', (hashlib.sha256(old.encode()).hexdigest(),))
@@ -330,7 +379,8 @@ def configure_admin(email):
             if password != getpass('再次输入密码：'):
                 raise SystemExit('两次密码不一致')
             con.execute('INSERT INTO users VALUES (?,?,?,?,?)', (db.uid('user'), address, password_hash(password), 'admin', db.now()))
-    print('管理员账号已配置。')
+    init()
+    print('管理员账号已配置。用户名：' + display_name(address))
 
 
 if __name__ == '__main__':

@@ -24,7 +24,7 @@ def database():
     with db.connect() as con:
         con.execute('DELETE FROM objects')
         con.execute('DELETE FROM events')
-        for table in ('users', 'sessions', 'email_codes', 'auth_limits', 'browser_checks'):
+        for table in ('usernames', 'users', 'sessions', 'email_codes', 'auth_limits', 'browser_checks'):
             con.execute(f'DELETE FROM {table}')
     yield
 

@@ -84,6 +84,7 @@ class ProjectIn(StrictModel):
 
 
 class RunIn(StrictModel):
+    approval_mode: Literal['ask', 'assist', 'auto'] = 'assist'
     title: str = Field(min_length=1, max_length=160)
     prompt: str = Field(min_length=5, max_length=16000)
     kind: Literal['research', 'diagnosis']
@@ -102,9 +103,11 @@ class ChatIn(StrictModel):
     conversation_id: str | None = None
     mode: Literal['demo', 'live'] = 'demo'
     planner_tools: bool = False
+    assistant: Literal['chat', 'planner'] = 'chat'
     time_zone: str = Field(default='UTC', max_length=100)
     model_id: str | None = Field(default=None, max_length=300)
     reasoning_effort: Literal['default', 'low', 'medium', 'high'] = 'default'
+    approval_mode: Literal['ask', 'assist', 'auto'] = 'assist'
 
 
 class ConversationRename(StrictModel):
@@ -163,7 +166,7 @@ def require(identifier, kind):
 @app.get('/api/health')
 def health():
     pulse = db.DATA / 'worker.pulse'
-    return {'ok': True, 'service': 'sakuya-agent', 'protocol': 4, 'instance': os.getenv('SAKUYA_INSTANCE', ''), 'worker_online': pulse.exists() and time.time() - pulse.stat().st_mtime < 15, 'docker_available': bool(shutil.which('docker'))}
+    return {'ok': True, 'service': 'sakuya-agent', 'protocol': 7, 'instance': os.getenv('SAKUYA_INSTANCE', ''), 'worker_online': pulse.exists() and time.time() - pulse.stat().st_mtime < 15, 'docker_available': bool(shutil.which('docker'))}
 
 
 @app.get('/api/workspace')
@@ -190,7 +193,9 @@ def send_chat(data: ChatIn):
     if data.conversation_id:
         require(data.conversation_id, 'conversation')
     selection = settings.resolve_model(data.model_id, data.reasoning_effort) if data.mode == 'live' else {}
-    return db.queue_chat(data.prompt, data.conversation_id, data.mode, data.planner_tools, data.time_zone, selection)
+    selection['approval_mode'] = data.approval_mode
+    selection['assistant'] = data.assistant
+    return db.queue_chat(data.prompt, data.conversation_id, data.mode, data.planner_tools or data.assistant == 'planner', data.time_zone, selection)
 
 
 @app.put('/api/conversations/order')
@@ -296,9 +301,12 @@ def save_report(identifier: str):
 
 
 def visible_ticket(ticket, user):
-    if user['role'] == 'admin':
-        return ticket
-    return ticket | {'comments': [c for c in ticket.get('comments', []) if not c.get('internal')]}
+    return ticket | {
+        'customer': auth.display_name(ticket.get('owner_id') or ticket.get('customer', '')),
+        'assignee': auth.display_name(ticket.get('assignee', '未分配')),
+        'comments': [c | {'author': auth.display_name(c.get('author', ''))} for c in ticket.get('comments', [])
+                     if user['role'] == 'admin' or not c.get('internal')],
+    }
 
 
 def require_ticket(identifier, request):
@@ -311,7 +319,7 @@ def require_ticket(identifier, request):
 @app.post('/api/tickets', status_code=201)
 def create_ticket(data: TicketIn, request: Request):
     user = request.state.user
-    return db.put('ticket', data.model_dump() | {'owner_id': user['id'], 'customer': user['email'], 'status': 'open', 'assignee': '未分配', 'comments': [], 'is_demo': False})
+    return db.put('ticket', data.model_dump() | {'owner_id': user['id'], 'customer': user['username'], 'status': 'open', 'assignee': '未分配', 'comments': [], 'is_demo': False})
 
 
 @app.get('/api/tickets/{identifier}')
@@ -333,7 +341,7 @@ def comment(identifier: str, data: CommentIn, request: Request):
     require_ticket(identifier, request)
     if request.state.user['role'] != 'admin':
         raise HTTPException(403, '只有管理员可以处理和回复工单')
-    return db.append_comment(identifier, data.content, data.internal, request.state.user['email'])
+    return db.append_comment(identifier, data.content, data.internal, request.state.user['username'])
 
 
 @app.post('/api/documents', status_code=201)

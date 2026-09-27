@@ -1,8 +1,9 @@
+import ThemeSwitch from './theme-switch';
 import LanguageSwitch from './language-switch';
 import { useLocale, tr } from './i18n';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, FlaskConical, Bug, Ticket, Settings, SquarePen, PanelLeft, Moon, Sun, Check, X, WifiOff, ListTodo, CalendarDays, LogOut } from 'lucide-react';
+import { Search, FlaskConical, Bug, Settings, SquarePen, PanelLeft, Check, X, WifiOff, ListTodo, CalendarDays, LogOut } from 'lucide-react';
 import type { ModalState, Workspace, User } from './types';
 import { api } from './api';
 import { Loading, Empty, Modal } from './ui';
@@ -26,22 +27,36 @@ const navigation = [
 ];
 
   const client = useQueryClient();
-  const [path, setPath] = useState(location.hash.slice(1) || 'chat');
+  const [path, setPath] = useState(location.hash.slice(1) || 'work');
   const projectId = 'all';
   const workChatKey = `sakuya-work-chat:${user.id}`;
-  const [work, setWork] = useState(!['chat', 'overview', 'settings'].includes(location.hash.slice(1).split('/')[0] || 'chat'));
-  const [workConversation, setWorkConversation] = useState<string | undefined>(sessionStorage.getItem(workChatKey) || undefined);
+  const [workConversation, setWorkConversation] = useState<string | undefined>(location.hash.startsWith('#chat/') ? location.hash.slice(6) : sessionStorage.getItem(workChatKey) || undefined);
+  const splitKey = `sakuya-split:${user.id}`;
+  const layout = useRef<HTMLDivElement>(null);
+  const historyTrigger = useRef<HTMLButtonElement>(null);
+  const historyHover = useRef(false);
+  useEffect(() => {
+    const moved = (e: PointerEvent) => {
+      const r = historyTrigger.current?.getBoundingClientRect();
+      if (!r || e.clientX < 0 || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) historyHover.current = false;
+    };
+    window.addEventListener('pointermove', moved);
+    return () => window.removeEventListener('pointermove', moved);
+  }, []);
+  const [split, setSplit] = useState(() => { const n = Number(localStorage.getItem(splitKey) || 46); return Number.isFinite(n) ? Math.max(30, Math.min(70, n)) : 46; });
+  const [dragging, setDragging] = useState(false);
+  const resize = (value: number) => { const next = Math.max(30, Math.min(70, value)); setSplit(next); localStorage.setItem(splitKey, String(next)); };
   const [edgeOpen, setEdgeOpen] = useState(false);
   const [modal, setModal] = useState<ModalState>(null);
   const [history, setHistory] = useState(false);
+  const [hoverHistory, setHoverHistory] = useState(false);
   const [chatVersion, setChatVersion] = useState(0);
   const [toastText, setToastText] = useState('');
   const [deletedId, setDeletedId] = useState<string | null>(null);
-  const [theme, setTheme] = useState(localStorage.getItem('sakuya-theme') || 'dark');
   const query = useQuery({ queryKey: ['workspace'], queryFn: () => api<Workspace>('/workspace'), refetchInterval: q => q.state.data?.chats?.some(r => ['queued', 'running'].includes(r.status)) ? 800 : 5000 });
   const w = query.data;
-  const navigate = useCallback((value: string) => { if (value.startsWith('chat')) { setWorkConversation(value.split('/')[1]); sessionStorage.setItem(workChatKey, value.split('/')[1] || ''); if (work) value = 'work'; } else if (['work', 'todos', 'calendar', 'research', 'diagnosis', 'run'].includes(value.split('/')[0])) setWork(true); location.hash = value; setPath(value); setHistory(false); setEdgeOpen(false); }, [work, workChatKey]);
-  const newChat = useCallback(() => { setChatVersion(value => value + 1); navigate('chat'); }, [navigate]);
+  const navigate = useCallback((value: string) => { if (value.split('/')[0] === 'chat') { setWorkConversation(value.split('/')[1]); sessionStorage.setItem(workChatKey, value.split('/')[1] || ''); value = 'work'; } location.hash = value; setPath(value); setHistory(false); setEdgeOpen(false); }, [workChatKey]);
+  const newChat = useCallback(() => { sessionStorage.removeItem(`sakuya-approval:${user.id}:new`); setChatVersion(value => value + 1); navigate('chat'); }, [navigate, user.id]);
   const close = useCallback(() => setModal(null), []);
   const closeHistory = useCallback(() => setHistory(false), []);
   const refresh = useCallback(() => { void client.invalidateQueries({ queryKey: ['workspace'] }); }, [client]);
@@ -57,14 +72,13 @@ const navigation = [
   }
   function selectProject() {}
   async function logout() { try { await api('/auth/logout', 'POST'); client.clear(); location.hash = 'chat'; location.reload(); } catch (e) { toast((e as Error).message); } }
-  useEffect(() => { const handler = () => { setPath(location.hash.slice(1) || 'chat'); setHistory(false); }; window.addEventListener('hashchange', handler); return () => window.removeEventListener('hashchange', handler); }, []);
-  useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem('sakuya-theme', theme); }, [theme]);
+  useEffect(() => { const handler = () => { const next = location.hash.slice(1) || 'work'; setPath(next); if (next.startsWith('chat/')) { setWorkConversation(next.split('/')[1]); sessionStorage.setItem(workChatKey, next.split('/')[1]); } setHistory(false); }; window.addEventListener('hashchange', handler); return () => window.removeEventListener('hashchange', handler); }, []);
   useEffect(() => { if (toastText) { const timer = setTimeout(() => setToastText(''), 4000); return () => clearTimeout(timer); } }, [toastText]);
   useEffect(() => { const handler = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); setHistory(false); setModal({ type: 'search' }); } }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, []);
   const [view, id] = path.split('/');
   const admin = user.role === 'admin';
   const isChat = view === 'chat' || view === 'overview';
-  const isWork = work && view !== 'settings' && !isChat;
+  const isWork = !['settings', 'tickets', 'ticket'].includes(view);
   const active = view === 'run' ? w?.runs.find(r => r.id === id)?.kind : view;
   const props: PageProps | null = w ? { workspace: w, projectId, navigate, open: setModal, refresh, toast, selectProject } : null;
   let content;
@@ -76,20 +90,26 @@ const navigation = [
   else if (view === 'research' || view === 'diagnosis') content = <RunList key={view} kind={view} {...props} />;
   else if (view === 'run') content = <RunDetail key={id} id={id} {...props} />;
   else if (view === 'settings') content = <ModelSettings {...props} />;
-  const hasPanel = isWork && !['work', 'projects', 'knowledge', 'document'].includes(view);
+  const hasPanel = isWork && !['chat', 'overview', 'work', 'projects', 'knowledge', 'document'].includes(view);
 
   return <div className="app-shell minimal-shell">
     <header className="quiet-header" inert={history || !!modal}>
-      <div className="header-left">{<button className="icon-button" aria-label={tr("打开聊天记录")} title={tr("聊天记录")} onClick={() => setHistory(true)}><PanelLeft size={19} /></button>}<button className="wordmark" onClick={() => navigate('chat')}>Sakuya<span>✳</span></button></div>
-      {<nav className="mode-switch" aria-label={tr("主视图")}><span className={`mode-indicator ${work ? 'at-work' : ''}`} /><button aria-current={!work ? 'page' : undefined} onClick={() => { setWork(false); const target = workConversation ? `chat/${workConversation}` : 'chat'; location.hash = target; setPath(target); }}>{tr("聊天")}</button><button aria-current={work ? 'page' : undefined} onClick={() => { if (isChat) { setWorkConversation(id); sessionStorage.setItem(workChatKey, id || ''); } setWork(true); navigate('work'); }}>{tr("工作")}</button></nav>}
-      <div className="header-right"><span className="account-label" title={user.email}>{admin ? tr("管理员") : user.email}</span>{<><button className="icon-button" aria-label={tr("新对话")} title={tr("新对话")} onClick={newChat}><SquarePen size={19} /></button><button className="icon-button" aria-label={tr("设置")} title={tr("设置")} onClick={() => navigate('settings')}><Settings size={19} /></button><LanguageSwitch /></>}<button className="icon-button" aria-label={tr("工单")} title={tr("工单")} onClick={() => navigate('tickets')}><Ticket size={19} /></button><button className="icon-button" aria-label={tr("退出登录")} title={tr("退出登录")} onClick={() => void logout()}><LogOut size={18} /></button></div>
+      <div className="header-left">{<button className="icon-button" aria-label={tr("打开聊天记录")} title={tr("聊天记录")} onClick={() => { setHoverHistory(false); setHistory(true); }}><PanelLeft size={19} /></button>}<button className="wordmark" onClick={() => navigate('chat')}><img src="/sakuya.svg" alt="" />Sakuya</button><ThemeSwitch /><LanguageSwitch /></div>
+      <div className="header-right"><span className="account-label" title={user.username}>{user.username}{admin ? ` · ${tr("管理员")}` : ''}</span>{<><button className="icon-button" aria-label={tr("新对话")} title={tr("新对话")} onClick={newChat}><SquarePen size={19} /></button><button className="icon-button" aria-label={tr("设置")} title={tr("设置")} onClick={() => navigate('settings')}><Settings size={19} /></button><ThemeSwitch control="toggle" /></>}<button className="icon-button" aria-label={tr("退出登录")} title={tr("退出登录")} onClick={() => void logout()}><LogOut size={18} /></button></div>
     </header>
-    {(isChat || isWork) && props ? <div className={`work-layout ${hasPanel ? 'has-panel' : ''}`} inert={history || !!modal}>
-      <div className="main-scroll chat-scroll"><main className="chat-main"><Chat key={chatVersion} conversationId={isChat ? id : workConversation} workMode={isWork} {...props} /></main></div>
-      {isWork && <aside className={`work-edge ${edgeOpen ? 'is-open' : ''}`} onMouseEnter={() => setEdgeOpen(true)} onMouseLeave={() => setEdgeOpen(false)} onKeyDown={e => { if (e.key === 'Escape') setEdgeOpen(false); }}><button className="work-edge-trigger" aria-label={tr("打开工作功能")} aria-expanded={edgeOpen} onFocus={() => setEdgeOpen(true)} onClick={() => setEdgeOpen(v => !v)}><span /></button><nav className="work-edge-menu" aria-label={tr("工作功能")}>{navigation.map(n => <button key={n.id} className={active === n.id ? 'selected' : ''} onClick={() => navigate(n.id)}><n.icon size={18} /><span>{n.label}</span></button>)}</nav></aside>}
+    {(isChat || isWork) && props ? <div ref={layout} style={{ '--chat-share': `${split}%` } as React.CSSProperties} className={`work-layout ${hasPanel ? 'has-panel' : ''} ${dragging ? 'is-resizing' : ''}`} inert={history || !!modal}>
+      <aside className="work-edge history-edge"><button ref={historyTrigger} className="work-edge-trigger" aria-label={tr("展开聊天记录")} onMouseEnter={() => { if (!dragging && !historyHover.current) { historyHover.current = true; setHoverHistory(true); setHistory(true); } }} onClick={() => { setHoverHistory(true); setHistory(true); }}><span /></button></aside>
+      <div className="main-scroll chat-scroll"><main className="chat-main"><Chat key={chatVersion} conversationId={isChat ? id : workConversation} workMode {...props} /></main></div>
+
+      {hasPanel && <div className="pane-divider" role="separator" tabIndex={0} aria-label={tr('调整左右区域比例')} aria-orientation="vertical" aria-valuenow={Math.round(split)} aria-valuemin={30} aria-valuemax={70}
+        onPointerDown={e => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setDragging(true); }}
+        onPointerMove={e => { if (!e.currentTarget.hasPointerCapture(e.pointerId)) return; const rect = layout.current!.getBoundingClientRect(); resize((e.clientX - rect.left - 44) / (rect.width - 88) * 100); }}
+        onPointerUp={e => { e.currentTarget.releasePointerCapture(e.pointerId); setDragging(false); }} onLostPointerCapture={() => setDragging(false)}
+        onKeyDown={e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) { e.preventDefault(); resize(e.key === 'Home' ? 30 : e.key === 'End' ? 70 : split + (e.key === 'ArrowRight' ? 2 : -2)); } }}><span /></div>}
       {hasPanel && <section className={`work-feature view-${view}`} aria-label={tr("工作功能区域")}><div className="feature-toolbar"><span>{navigation.find(n => n.id === active)?.label || tr("工作区")}</span><button className="icon-button" aria-label={tr("收起功能区域")} onClick={() => navigate('work')}><X size={18} /></button></div><div className="page-content">{content}</div></section>}
+      {isWork && <aside className={`work-edge ${edgeOpen ? 'is-open' : ''}`} onMouseEnter={() => setEdgeOpen(true)} onMouseLeave={() => setEdgeOpen(false)} onKeyDown={e => { if (e.key === 'Escape') setEdgeOpen(false); }}><button className="work-edge-trigger" aria-label={tr("打开工作功能")} aria-expanded={edgeOpen} onFocus={() => setEdgeOpen(true)} onClick={() => setEdgeOpen(v => !v)}><span /></button><nav className="work-edge-menu" aria-label={tr("工作功能")}>{navigation.map(n => <button key={n.id} className={active === n.id ? 'selected' : ''} onClick={() => navigate(n.id)}><n.icon size={18} /><span>{n.label}</span></button>)}</nav></aside>}
     </div> : <div className="main-scroll" inert={history || !!modal}><main className={`page-content view-${view}`}>{content}</main></div>}
-    <Presence show={history} className="history-presence"><Modal title={tr("聊天记录")} close={closeHistory}><div className="history-body"><button className="history-new" onClick={newChat}><SquarePen size={17} />{tr("新对话")}</button><button className="history-search" onClick={() => { setHistory(false); setModal({ type: 'search' }); }}><Search size={16} />{tr("搜索工作区")}<kbd>Ctrl K</kbd></button><HistoryList conversations={w?.conversations || []} selectedId={isChat ? id : undefined} navigate={navigate} deleted={deletedConversation} toast={toast} /><button className="theme-switch" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}{tr(theme === 'dark' ? "切换浅色主题" : "切换深色主题")}</button></div></Modal></Presence>
+    <Presence show={history} className="history-presence"><Modal title={tr("聊天记录")} close={closeHistory} leave={hoverHistory ? closeHistory : undefined}><div className="history-body"><button className="history-new" onClick={newChat}><SquarePen size={17} />{tr("新对话")}</button><button className="history-search" onClick={() => { setHistory(false); setModal({ type: 'search' }); }}><Search size={16} />{tr("搜索工作区")}<kbd>Ctrl K</kbd></button><HistoryList conversations={w?.conversations || []} selectedId={isChat ? id : workConversation} navigate={navigate} deleted={deletedConversation} toast={toast} /></div></Modal></Presence>
     <Presence show={!!modal && !!w} className="dialog-presence">{modal && w && <WorkspaceModal key={modal.type + (modal.type === 'run' ? modal.kind : '')} modal={modal} workspace={w} projectId={projectId} close={close} navigate={navigate} refresh={refresh} toast={toast} />}</Presence>
     <Presence show={!!toastText} className="toast-presence"><div role="status" className="toast"><Check size={16} /><span>{tr(toastText)}</span>{deletedId && <button className="text-button" onClick={() => void undoDelete()}>{tr("撤销")}</button>}<button className="icon-button" aria-label={tr("关闭提示")} onClick={() => setToastText('')}><X size={14} /></button></div></Presence>
   </div>;

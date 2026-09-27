@@ -25,7 +25,7 @@ class LocalService {
   async start() {
     const existing = await probe(this.port);
     if (existing) {
-      if (existing.service === 'sakuya-agent' && existing.protocol === 4 && existing.worker_online) return;
+      if (existing.service === 'sakuya-agent' && existing.protocol === 7 && existing.worker_online) return;
       throw new Error(`本机 ${this.port} 端口已被其他服务或未就绪的旧版本占用。请退出该服务后重新打开 Sakuya。`);
     }
     if (!existsSync(this.command)) throw new Error('缺少内置服务文件，请使用完整的 Sakuya 应用目录。');

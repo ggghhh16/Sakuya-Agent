@@ -13,6 +13,7 @@ test.beforeEach(async ({request}) => {
 test('自定义清单、任务持久化、完成恢复、编辑退出动画与删除撤销', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto('/#todos');
+  await page.getByRole('button', {name: '我的规划', exact: true}).click();
   await page.getByRole('button', {name: '新建清单', exact: true}).click();
   let dialog = page.getByRole('dialog', {name: '新建清单', exact: true});
   const name = `自定义 ${Date.now()}`;
@@ -94,6 +95,7 @@ test('拖动创建、日周月切换、账号版本与窄屏布局', async ({pag
   await expect(dialog).not.toBeVisible();
   await page.keyboard.press('m');await expect(page.locator('.month-cell')).toHaveCount(42);
   await page.keyboard.press('w');await expect(page.locator('.calendar-day')).toHaveCount(7);
+  await page.getByRole('button',{name:'我的规划',exact:true}).click();
   await page.getByRole('button',{name:'连接设置',exact:true}).click();
   const settings=page.getByRole('dialog',{name:'日历与任务连接'});
   await settings.getByRole('button',{name:'滴答清单',exact:true}).click();
@@ -107,7 +109,7 @@ test('拖动创建、日周月切换、账号版本与窄屏布局', async ({pag
   await page.getByRole('button',{name:'新建任务',exact:true}).click();
   const mobile=page.getByRole('dialog',{name:'新建任务',exact:true});
   await expect(mobile).toBeVisible();
-  await expect.poll(async()=>Math.round((await mobile.boundingBox())!.x)).toBe(0);
+  await expect.poll(async()=>Math.round((await mobile.boundingBox())!.x)).toBeGreaterThan(0);
   const mb=(await mobile.boundingBox())!;expect(mb.x).toBeGreaterThanOrEqual(-1);expect(mb.x+mb.width).toBeLessThanOrEqual(391);
   await page.emulateMedia({reducedMotion:'reduce'});
   expect(await mobile.evaluate(el=>getComputedStyle(el).animationName)).toBe('none');

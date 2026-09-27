@@ -76,7 +76,7 @@ def test_browser_register_proof_still_requires_smtp_and_email_code(client, cloud
     assert client.post('/api/auth/email-code', json=body).status_code == 200
     assert sent[0][0] == body['email']
     assert client.post('/api/auth/email-code', json=body).status_code == 400
-    assert client.post('/api/auth/register', json={'email': body['email'], 'password': 'GoodPassword', 'code': sent[0][1]}).status_code == 201
+    assert client.post('/api/auth/register', json={'username': 'BrowserUser', 'email': body['email'], 'password': 'GoodPassword', 'code': sent[0][1]}).status_code == 201
 
 
 def test_existing_desktop_proof_cannot_mint_another_proof(client, cloudflare):

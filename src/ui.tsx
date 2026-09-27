@@ -1,5 +1,5 @@
 import { tr, useLocale, getLocale } from './i18n';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { X, LoaderCircle, ArrowUpRight, FileText, FlaskConical, Bug, Inbox } from 'lucide-react';
 import type { RunStatus, Ticket, RunKind } from './types';
@@ -20,15 +20,53 @@ export function Loading() {
   useLocale(); return <div className="loading"><LoaderCircle className="spin" size={22} /><span>{tr("正在打开工作区…")}</span></div>; }
 export function PageHeader({ icon, eyebrow, title, description, actions }: { icon: ReactNode; eyebrow?: string; title: string; description: string; actions?: ReactNode }) {
   useLocale(); return <div className="page-header"><div className="page-icon">{icon}</div>{eyebrow && <div className="eyebrow">{eyebrow}</div>}<div className="page-title-row"><h1>{title}</h1>{actions && <div className="page-actions">{actions}</div>}</div><p>{description}</p></div>; }
-export function Modal({ title, children, close, wide = false }: { title: string; children: ReactNode; close: () => void; wide?: boolean }) {
+export type FloatingRect = { left: number; right: number; top: number; bottom: number };
+export function Modal({ title, children, close, wide = false, leave, anchor, nonModal = false, hidden = false, outside }: { title: string; children: ReactNode; close: () => void; wide?: boolean; leave?: () => void; anchor?: FloatingRect | null; nonModal?: boolean; hidden?: boolean; outside?: () => void }) {
   useLocale();
   const ref = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{left: number; top: number}>();
+  const outsideRef = useRef(outside);
+  outsideRef.current = outside;
   useEffect(() => {
+    if (!nonModal || hidden || !outside) return;
+    let blockPress: {x: number; y: number} | null = null;
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target as Element;
+      blockPress = null;
+      if (ref.current?.contains(target)) return;
+      // Wait for release on the active block: clicks dismiss, dragging keeps the editor.
+      if (target.closest('[data-draft="true"]')) { blockPress = {x: event.clientX, y: event.clientY}; return; }
+      outsideRef.current?.();
+    };
+    const release = (event: PointerEvent) => {
+      if (blockPress && Math.abs(event.clientX - blockPress.x) + Math.abs(event.clientY - blockPress.y) <= 3) outsideRef.current?.();
+      blockPress = null;
+    };
+    document.addEventListener('pointerdown', dismiss, true);
+    document.addEventListener('pointerup', release, true);
+    return () => { document.removeEventListener('pointerdown', dismiss, true); document.removeEventListener('pointerup', release, true); };
+  }, [nonModal, hidden, !!outside]);
+  useLayoutEffect(() => {
+    if (hidden) return;
+    if (!anchor || !ref.current) { setPosition(undefined); return; }
+    const place = () => {
+      const box = ref.current!.getBoundingClientRect();
+      const gap = 12, minTop = window.sakuyaDesktop?.embedded ? 44 : 12;
+      const left = anchor.right + gap + box.width <= window.innerWidth - gap ? anchor.right + gap : anchor.left - box.width - gap;
+      setPosition({left: Math.max(gap, Math.min(left, window.innerWidth - box.width - gap)), top: Math.max(minTop, Math.min(anchor.top, window.innerHeight - box.height - gap))});
+    };
+    place();
+    const observer = new ResizeObserver(place); observer.observe(ref.current);
+    window.addEventListener('resize', place);
+    return () => { observer.disconnect(); window.removeEventListener('resize', place); };
+  }, [anchor, hidden]);
+  useEffect(() => {
+    if (hidden) return;
     const previous = document.activeElement as HTMLElement;
     const timer = setTimeout(() => { if (!ref.current?.contains(document.activeElement)) ref.current?.querySelector<HTMLElement>('input,textarea,select,button')?.focus(); }, 30);
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close();
-      if (e.key === 'Tab') {
+      if (e.key === 'Tab' && !nonModal) {
         const nodes = ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input,textarea,select,a[href]');
         if (!nodes?.length) return;
         const first = nodes[0], last = nodes[nodes.length - 1];
@@ -38,8 +76,8 @@ export function Modal({ title, children, close, wide = false }: { title: string;
     };
     document.addEventListener('keydown', handler);
     return () => { clearTimeout(timer); document.removeEventListener('keydown', handler); if (ref.current?.contains(document.activeElement) || document.activeElement === document.body) previous?.focus(); };
-  }, [close]);
-  return <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && close()}><div ref={ref} className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}><div className="modal-heading"><h2>{title}</h2><button className="icon-button" aria-label={tr("关闭弹窗")} onClick={close}><X size={18} /></button></div>{children}</div></div>;
+  }, [close, hidden, nonModal]);
+  return <div style={hidden ? {display: 'none'} : undefined} className={`modal-backdrop ${anchor ? 'anchored-backdrop' : ''} ${nonModal ? 'nonmodal-backdrop' : ''}`} onMouseDown={e => e.target === e.currentTarget && close()}><div ref={ref} style={anchor && position ? {position: 'fixed', ...position} : undefined} onMouseLeave={leave} className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal={nonModal ? undefined : true} aria-label={title}><div className="modal-heading"><h2>{title}</h2><button className="icon-button" aria-label={tr("关闭弹窗")} onClick={close}><X size={18} /></button></div>{children}</div></div>;
 }
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   useLocale(); return <label className="field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>; }

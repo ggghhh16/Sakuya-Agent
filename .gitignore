@@ -16,6 +16,7 @@ dist/
 release/
 release-planner/
 .build/
+.codex/
 *.lnk
 test-results/
 playwright-report/

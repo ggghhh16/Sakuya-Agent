@@ -7,7 +7,7 @@ import type { User } from './types';
 import { Field, Loading } from './ui';
 
 type Turnstile = { render: (element: HTMLElement, options: Record<string, unknown>) => string; remove: (id: string) => void };
-declare global { interface Window { turnstile?: Turnstile; sakuyaDesktop?: { embedded: boolean; language?: 'en' | 'zh-CN'; setLanguage?: (locale: 'en' | 'zh-CN') => void } } }
+declare global { interface Window { turnstile?: Turnstile; sakuyaDesktop?: { embedded: boolean; language?: 'en' | 'zh-CN' | 'ja'; setLanguage?: (locale: 'en' | 'zh-CN' | 'ja') => void; setTheme?: (theme: 'dark' | 'light', family?: 'sakuya' | 'a' | 'notion') => void } } }
 
 export function humanError(code: string, desktop: boolean) {
   const host = location.hostname;
@@ -40,7 +40,7 @@ function HumanCheck({ siteKey, action, onToken, version }: { siteKey: string; ac
     setError(''); onToken('');
     const render = () => {
       if (cancelled || !root.current || !window.turnstile || id) return;
-      id = window.turnstile.render(root.current, { sitekey: siteKey, action, theme: 'dark', language: locale === 'en' ? 'en' : 'zh-cn',
+      id = window.turnstile.render(root.current, { sitekey: siteKey, action, theme: 'dark', language: locale === 'zh-CN' ? 'zh-cn' : locale,
         callback: (token: string) => { setError(''); onToken(token); },
         'expired-callback': () => { onToken(''); setError("人机验证已过期，请重新验证。"); },
         'error-callback': (code: string) => { onToken(''); setError(humanError(String(code), desktop)); return true; } });
@@ -77,7 +77,7 @@ function BrowserHumanCheckPage() {
     return () => { stopped = true; };
   }, [id, token]);
   const problem = !valid ? tr("验证地址无效，请从桌面重新打开。") : info.error?.message || config.error?.message;
-  return <main className="auth-shell"><section className="auth-card"><div className="auth-language"><LanguageSwitch /></div><h1>{tr("Sakuya 桌面人机验证")}</h1>
+  return <main className="auth-shell"><div className="auth-window-brand"><img src="/sakuya.svg" alt="" />Sakuya</div><section className="auth-card"><div className="auth-language"><LanguageSwitch /></div><h1>{tr("Sakuya 桌面人机验证")}</h1>
     {problem ? <p role="alert">{tr(problem)}</p> : done || info.data?.verified ? <p role="status">{tr("✓ 验证成功，请返回 Sakuya 桌面继续。可以关闭此页面。")}</p>
       : info.data && config.data?.site_key ? <><p>{tr("用于桌面端")}{info.data.action === 'login' ? tr("登录") : tr("发送注册邮箱验证码")}{tr("。完成后验证结果会自动返回桌面。")}</p>
         <HumanCheck siteKey={config.data.site_key} action={info.data.action} onToken={setToken} version={version} />
@@ -101,6 +101,7 @@ function SessionGate({ children }: { children: (user: User) => React.ReactNode }
 function AuthForm({ signedIn }: { signedIn: () => void }) {
   useLocale();
   const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [username, setUsername] = useState('');
   const [remember, setRemember] = useState(false);
   const [messageKind, setMessageKind] = useState<'success' | 'error'>('error');
   const [email, setEmail] = useState(''), [password, setPassword] = useState(''), [confirmation, setConfirmation] = useState(''), [code, setCode] = useState('');
@@ -111,7 +112,7 @@ function AuthForm({ signedIn }: { signedIn: () => void }) {
   function resetHuman() { setToken(''); setVersion(v => v + 1); }
   async function sendCode() {
     setSending(true); setMessage('');
-    try { await api('/auth/email-code', 'POST', { email, human_token: token }); setCooldown(60); setMessageKind('success'); setMessage("验证码已发送，10 分钟内有效。"); }
+    try { const result = await api<{retry_after: number}>('/auth/email-code', 'POST', { email, human_token: token }); setCooldown(result.retry_after || 90); setMessageKind('success'); setMessage("验证码已发送，10 分钟内有效。"); }
     catch (e) { setMessageKind('error'); setMessage((e as Error).message); } finally { resetHuman(); setSending(false); }
   }
   async function submit(e: React.FormEvent) {
@@ -119,14 +120,14 @@ function AuthForm({ signedIn }: { signedIn: () => void }) {
     try {
       if (mode === 'register') {
         if (!strong || password !== confirmation) throw new Error(tr("请满足密码强度要求，并确认两次密码一致"));
-        await api('/auth/register', 'POST', { email, password, code }); setMode('login'); setPassword(''); setConfirmation(''); setCode(''); setMessageKind('success'); setMessage("注册成功，请登录。");
-      } else { await api('/auth/login', 'POST', { email, password, human_token: token, remember }); signedIn(); }
+        await api('/auth/register', 'POST', { email, username, password, code }); setMode('login'); setPassword(''); setConfirmation(''); setCode(''); setMessageKind('success'); setMessage("注册成功，请登录。");
+      } else { await api('/auth/login', 'POST', { identifier: email, password, human_token: token, remember }); signedIn(); }
     } catch (e) { setMessageKind('error'); setMessage((e as Error).message); } finally { resetHuman(); setBusy(false); }
   }
-  return <main className="auth-shell"><section className="auth-card"><div className="auth-language"><LanguageSwitch /></div><span className="greeting-mark">✳</span><h1>{mode === 'login' ? tr("登录 Sakuya") : tr("创建账号")}</h1><p className="muted">{mode === 'login' ? tr("登录后继续你的工作") : tr("使用邮箱注册，开始聊天与工作")}</p>
+  return <main className="auth-shell"><div className="auth-window-brand"><img src="/sakuya.svg" alt="" />Sakuya</div><section className="auth-card"><div className="auth-language"><LanguageSwitch /></div><span className="greeting-mark">✳</span><h1>{mode === 'login' ? tr("登录 Sakuya") : tr("创建账号")}</h1><p className="muted">{mode === 'login' ? tr("登录后继续你的工作") : tr("使用邮箱注册，开始聊天与工作")}</p>
     <div className="segmented auth-tabs"><button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); resetHuman(); setMessage(''); }}>{tr("登录")}</button><button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => { setMode('register'); resetHuman(); setMessage(''); }}>{tr("注册")}</button></div>
-    <form onSubmit={submit}><Field label={tr("邮箱")}><input type="email" autoComplete="email" required maxLength={254} value={email} onChange={e => setEmail(e.target.value)} /></Field><Field label={tr("密码")} hint={mode === 'register' ? tr("至少 8 位，且包含大写字母和小写字母") : undefined}><input aria-label={tr("密码")} type="password" required autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'register' ? 8 : 1} maxLength={128} value={password} onChange={e => setPassword(e.target.value)} /></Field>
-    {mode === 'register' && <><p className={strong ? 'password-valid' : 'muted'}>{strong ? tr("✓ 密码强度符合要求") : tr("密码需同时满足长度及大小写要求")}</p><Field label={tr("确认密码")}><input type="password" autoComplete="new-password" required value={confirmation} onChange={e => setConfirmation(e.target.value)} /></Field></>}
+    <form onSubmit={submit}><>{mode === 'register' && <Field label={tr("用户名")} hint={tr("3–32 位字母、数字、下划线或短横线")}><input aria-label={tr("用户名")} autoComplete="username" required minLength={3} maxLength={32} value={username} onChange={e => setUsername(e.target.value)} /></Field>}</><Field label={tr(mode === 'login' ? "用户名或邮箱" : "邮箱")}><input type={mode === 'login' ? "text" : "email"} autoComplete={mode === 'login' ? "username" : "email"} required maxLength={254} value={email} onChange={e => setEmail(e.target.value)} /></Field><Field label={tr("密码")} hint={mode === 'register' ? tr("至少 8 位，且包含大写字母和小写字母") : undefined}><input aria-label={tr("密码")} type="password" required autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'register' ? 8 : 1} maxLength={128} value={password} onChange={e => setPassword(e.target.value)} /></Field>
+    {mode === 'register' && <>{strong && <p className="password-valid">{tr("✓ 密码强度符合要求")}</p>}<Field label={tr("确认密码")}><input type="password" autoComplete="new-password" required value={confirmation} onChange={e => setConfirmation(e.target.value)} /></Field></>}
     {mode === 'login' && <label className="auth-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} /><span>{tr("记住下次登录")}<small>{tr("在此设备保留登录状态 30 天")}</small></span></label>}
     {config.data?.site_key ? <><HumanCheck siteKey={config.data.site_key} action={mode} onToken={setToken} version={version} /><button className="text-button" type="button" onClick={resetHuman}>{tr("重新验证")}</button></> : <p className="notice">{tr("管理员尚未配置 Turnstile 人机验证。")}</p>}
     {mode === 'register' && <><Field label={tr("邮箱验证码")}><div className="code-row"><input inputMode="numeric" autoComplete="one-time-code" required pattern="[0-9]{6}" maxLength={6} value={code} onChange={e => setCode(e.target.value)} /><button type="button" className="button" disabled={!token || !email || sending || cooldown > 0 || !config.data?.registration_ready} onClick={() => void sendCode()}>{cooldown ? tr("{0} 秒后重发", [cooldown]) : sending ? tr("发送中…") : tr("发送验证码")}</button></div></Field>{!config.data?.registration_ready && <p className="notice">{tr("邮箱注册服务尚未配置完成，请联系管理员。")}</p>}</>}

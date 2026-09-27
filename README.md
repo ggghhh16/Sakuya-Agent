@@ -8,9 +8,9 @@ Sakuya opens to a minimal dark chat interface. Work mode keeps chat available wh
 
 ## Interface languages
 
-Click the language button **beside Settings in the main header** to switch between English and Simplified Chinese. Sign-in and registration also include a language button.
+Open the language menu beside the Sakuya title to choose English, Simplified Chinese, or Japanese. Theme settings are beside it; the light/dark toggle remains on the right. Sign-in and registration also include a language button.
 
-- The initial language follows the browser: Chinese for Chinese locales, English otherwise.
+- The initial language follows the browser: Chinese for Chinese locales, Japanese for Japanese locales, English otherwise.
 - Your selection persists in the current browser or desktop profile and synchronizes across tabs on the same origin.
 - Switching updates navigation, forms, settings, status labels, and calendar dates without resetting drafts or reloading the page.
 - User input, existing conversations, reports, source excerpts, and raw execution logs retain their original language. Interface language does not force a model's response language.
@@ -21,8 +21,8 @@ Click the language button **beside Settings in the main header** to switch betwe
 - **Model settings:** multiple Chat Completions-compatible providers, model discovery, model selection, and optional reasoning effort.
 - **Deep research:** planning, document and web retrieval, bounded follow-up collection, cited Markdown reports, and optional reviewed experiments.
 - **Issue investigation:** inspect a GitHub repository at a fixed commit, read candidate files and recent issues, and report possible causes with source links.
-- **Support tickets:** user submissions, administrator assignment, status and priority management, public replies, and private internal notes.
-- **Tasks and calendars:** lists, priorities, day/week/month views, all-day events, drag and resize, and five-minute scheduling increments.
+- **Support tickets:** available from Settings, with user submissions, administrator assignment, status and priority management, public replies, and private internal notes.
+- **Tasks and calendars:** lists, priorities, day/week/month views, adjustable 1–14 day ranges, all-day events, drag and resize, and five-minute scheduling increments. Calendar editors appear beside events and dismiss on outside clicks. Title changes save automatically; other existing-event fields use Save.
 - **Integrations:** link lists to Google Calendar and Dida or international TickTick; optionally let a tool-capable chat model manage the planner.
 - **Durable execution:** SQLite task queues, a separate worker, LangGraph checkpoints, review and resume, retries, cancellation, and recovery after worker heartbeat expiry.
 
@@ -37,7 +37,7 @@ cd Sakuya-Agent
 Copy-Item .env.example .env
 ```
 
-This private repository requires access to clone. It contains source code, not prebuilt binaries or user data.
+This repository contains source code, not prebuilt binaries or user data.
 
 ### Configure authentication first
 
@@ -89,7 +89,7 @@ node scripts/package.mjs
 
 This builds the web interface, bundles the Python backend with PyInstaller, packages Electron, and creates `Sakuya Desktop.lnk` and `Sakuya Web.lnk` in the project root.
 
-- **Desktop:** open `Sakuya Desktop.lnk`, or `release-user-workspace/win-unpacked/Sakuya Agent.exe`.
+- **Desktop:** open `Sakuya Desktop.lnk`, or `release-ui-v7/win-unpacked/Sakuya Agent.exe`.
 - **Browser:** open `Sakuya Web.lnk`. It starts the local service and opens `http://127.0.0.1:8120`.
 - `start.ps1` starts the packaged desktop app; `start.ps1 --web` starts browser mode.
 - Browser mode keeps the service in the system tray. Closing the browser does not stop it; exit Sakuya from the tray to stop the service it owns.

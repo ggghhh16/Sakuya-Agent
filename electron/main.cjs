@@ -5,6 +5,11 @@ const { LocalService } = require('./service.cjs');
 const { chromiumUserAgent, allowChallengeStorage } = require('./browser-policy.cjs');
 const { validLocale, readLocale, saveLocale, labels } = require('./locale.cjs');
 let language = 'en';
+let theme = 'dark';
+const titleBarColors = {
+  dark: { color: '#111315', symbolColor: '#e2e4e7', height: 31 },
+  light: { color: '#faf9f7', symbolColor: '#292d30', height: 31 },
+};
 app.userAgentFallback = chromiumUserAgent(app.userAgentFallback);
 const devUrl = process.env.SAKUYA_DEV_URL;
 const port = Number(process.env.SAKUYA_PORT || 8120);
@@ -33,8 +38,9 @@ async function ensureService() {
 }
 function openWindow() {
   if (win && !win.isDestroyed()) { win.show(); if (win.isMinimized()) win.restore(); win.focus(); return; }
-  win = new BrowserWindow({ width: 1440, height: 960, minWidth: 840, minHeight: 620, backgroundColor: '#111315', title: 'Sakuya Agent', autoHideMenuBar: true, show: !process.env.SAKUYA_TEST,
+  win = new BrowserWindow({ width: 1440, height: 960, minWidth: 840, minHeight: 620, backgroundColor: titleBarColors[theme].color, title: 'Sakuya', icon: join(__dirname, 'sakuya.ico'), titleBarStyle: 'hidden', titleBarOverlay: titleBarColors[theme], autoHideMenuBar: true, show: !process.env.SAKUYA_TEST,
     webPreferences: { preload: join(__dirname, 'preload.cjs'), additionalArguments: [`--sakuya-language=${language}`], nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true } });
+  win.on('page-title-updated', event => { event.preventDefault(); win.setTitle('Sakuya'); });
   win.webContents.session.setUserAgent(app.userAgentFallback);
   win.webContents.setUserAgent(app.userAgentFallback);
   win.webContents.setWindowOpenHandler(({ url }) => { if (safeExternal(url, target)) void shell.openExternal(url); return { action: 'deny' }; });
@@ -81,6 +87,17 @@ function updateTray() {
     { type: 'separator' }, { label: text.quit, click: () => app.quit() },
   ]));
 }
+ipcMain.on('sakuya:set-theme', (event, value, family = 'sakuya') => {
+  if (!['sakuya', 'a', 'notion'].includes(family)) return;
+  if ((value !== 'dark' && value !== 'light') || !win || event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame) return;
+  try { if (new URL(event.senderFrame.url).origin !== target) return; } catch { return; }
+  theme = value;
+  const palettes = { a: { dark: ['#262624', '#ece9e1'], light: ['#faf9f5', '#34332e'] }, notion: { dark: ['#191919', '#eeeeec'], light: ['#ffffff', '#37352f'] } };
+  const pair = palettes[family]?.[theme];
+  const colors = pair ? { color: pair[0], symbolColor: pair[1], height: 31 } : titleBarColors[theme];
+  win.setTitleBarOverlay(colors);
+  win.setBackgroundColor(colors.color);
+});
 ipcMain.on('sakuya:set-language', (event, value) => {
   if (!validLocale(value) || !win || event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame) return;
   try { if (new URL(event.senderFrame.url).origin !== target) return; } catch { return; }
@@ -94,7 +111,7 @@ else {
   app.on('second-instance', (_event, args) => { void app.whenReady().then(() => launch(args.includes('--web'))); });
   app.whenReady().then(async () => {
     language = readLocale(app.getPath('userData'), app.getLocale());
-    tray = new Tray(await app.getFileIcon(process.execPath, { size: 'small' }));
+    tray = new Tray(join(__dirname, 'sakuya.ico'));
     updateTray();
     tray.on('double-click', () => void launch(false));
     await launch(keepForBrowser);

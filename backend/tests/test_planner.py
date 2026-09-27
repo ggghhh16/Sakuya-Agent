@@ -212,8 +212,8 @@ def test_chat_calls_real_mcp_dispatch_and_resumes_without_duplicate_write(client
     import httpx
     from app import planner_mcp, settings
     planner.snapshot()
-    run = db.queue_chat('创建一个任务', None, 'live', True, 'Asia/Singapore')['run']
-    db.patch(run['id'], {'status':'running'})
+    run = db.queue_chat('创建一个任务', None, 'live', True, 'Asia/Singapore', {'assistant': 'planner'})['run']
+    db.patch(run['id'], {'status':'running', 'approval_mode': 'auto'})
     monkeypatch.setattr(settings, 'config', lambda: {'base_url':'https://model.example/v1','api_key':'private','model':'test'})
     attempts = []
     class Stub:
@@ -226,6 +226,8 @@ def test_chat_calls_real_mcp_dispatch_and_resumes_without_duplicate_write(client
                 return client.post(url, **kwargs)
             messages = kwargs['json']['messages']
             attempts.append(copy.deepcopy(messages))
+            assert '日程-任务管理助手' in messages[0]['content']
+            assert 'Asia/Singapore' in messages[0]['content']
             if len(attempts) == 1:
                 message = {'role':'assistant','content':None,'reasoning_content':'tool reasoning', 'tool_calls':[{'id':'call_1','type':'function','function':{'name':'planner_create_entry','arguments':'{"title":"MCP created","list_id":"todo_inbox"}'}}]}
                 return httpx.Response(200,json={'choices':[{'message':message}],'usage':{'total_tokens':5}})

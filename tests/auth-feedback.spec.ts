@@ -11,6 +11,7 @@ test('注册成功使用绿色提示框，随后登录失败切换为错误样�
   await page.route('**/api/auth/login', route => route.fulfill({ status: 401, json: { detail: '邮箱或密码不正确' } }));
   await page.goto('/');
   await page.getByRole('button', { name: '注册', exact: true }).first().click();
+  await page.getByLabel('用户名', { exact: true }).fill('TestUser');
   await page.getByLabel('邮箱', { exact: true }).fill('test@example.com');
   await page.getByLabel('密码', { exact: true }).fill('GoodPassword');
   await page.getByLabel('确认密码', { exact: true }).fill('GoodPassword');
@@ -34,7 +35,7 @@ test('记住下次登录随登录提交且不把密码写入本地存储', async
     return route.fulfill({ status: 401, json: { detail: '测试拒绝登录' } });
   });
   await page.goto('/');
-  await page.getByLabel('邮箱', { exact: true }).fill('test@example.com');
+  await page.getByLabel('用户名或邮箱', { exact: true }).fill('test@example.com');
   await page.getByLabel('密码', { exact: true }).fill('GoodPassword');
   await page.locator('button[type=submit]').click();
   await expect.poll(() => requests.length).toBe(1);

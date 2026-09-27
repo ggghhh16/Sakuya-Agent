@@ -4,6 +4,14 @@ import ts from 'typescript';
 
 const english = JSON.parse(readFileSync('src/locales/en.json', 'utf8'));
 const placeholders = value => [...value.matchAll(/\{\d+\}/g)].map(match => match[0]).sort();
+for (const file of readdirSync('src/locales').filter(name => name.endsWith('.json') && name !== 'en.json')) {
+  const catalog = JSON.parse(readFileSync(`src/locales/${file}`, 'utf8'));
+  assert.deepEqual(Object.keys(catalog).sort(), Object.keys(english).sort(), `Incomplete locale: ${file}`);
+  for (const [key, value] of Object.entries(catalog)) {
+    assert(value.trim(), `Empty translation: ${file}: ${key}`);
+    assert.deepEqual(placeholders(value), placeholders(key), `Placeholder mismatch: ${file}: ${key}`);
+  }
+}
 for (const [key, value] of Object.entries(english)) {
   assert(value.trim(), `Empty translation: ${key}`);
   assert.deepEqual(placeholders(value), placeholders(key), `Placeholder mismatch: ${key}`);

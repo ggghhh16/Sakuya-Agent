@@ -11,7 +11,7 @@ const environment = { ...process.env, SAKUYA_TEST: '1', SAKUYA_PORT: '8130',
   SAKUYA_DATA_DIR: resolve('.data/desktop-accounts'), SAKUYA_DESKTOP_DATA: resolve(`.data/desktop-profile-accounts-${Date.now()}`),
   TURNSTILE_SITE_KEY: 'test-site-key', NO_PROXY: '127.0.0.1,localhost', NODE_USE_ENV_PROXY: '0' };
 for (const key of ['ELECTRON_RUN_AS_NODE', 'SAKUYA_DEV_URL', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY']) delete environment[key];
-const launchProcess = () => spawn(resolve('release-user-workspace/win-unpacked/Sakuya Agent.exe'), ['--remote-debugging-port=9237', '--remote-debugging-address=127.0.0.1'], { env: environment, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+const launchProcess = () => spawn(resolve(process.argv[2] || 'release-ui-v7/win-unpacked', 'Sakuya Agent.exe'), ['--remote-debugging-port=9237', '--remote-debugging-address=127.0.0.1'], { env: environment, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
 let processHandle = launchProcess();
 
 let ws, seq = 0;
@@ -48,7 +48,7 @@ try {
   await attach();
   await until(() => evaluate("document.body.innerText.includes('登录 Sakuya')"));
   const health = (await localGet('http://127.0.0.1:8130/api/health')).data;
-  assert.equal(health.protocol, 4);
+  assert.equal(health.protocol, 7);
   await until(() => evaluate("!!document.querySelector('script[data-turnstile]')"));
   assert.equal(await evaluate("document.body.innerText.includes('在浏览器中验证')"), false);
   assert.equal(await evaluate("window.sakuyaDesktop?.embedded"), true);
@@ -70,8 +70,7 @@ print(auth.issue_session(identifier, Response(), remember=${remember ? 'True' : 
   const token = makeToken(true);
   await rpc('Network.setCookie', { name: 'sakuya_session', value: token, url: 'http://127.0.0.1:8130', httpOnly: true, sameSite: 'Lax', expires: Date.now() / 1000 + 30 * 86400 });
   await rpc('Page.reload');
-  await until(() => evaluate("document.body.innerText.includes('今天有什么想聊的？')"));
-  await evaluate("[...document.querySelectorAll('button')].find(b => b.textContent === '工作').click()");
+  await until(() => evaluate("document.body.innerText.includes('今天想做些什么？')"));
   await until(() => evaluate("document.body.innerText.includes('今天想做些什么？')"));
   await evaluate("document.querySelector('[aria-label=打开工作功能]').click()");
   await evaluate("[...document.querySelectorAll('.work-edge-menu button')].find(b => b.textContent === '日历').click()");
@@ -83,7 +82,7 @@ print(auth.issue_session(identifier, Response(), remember=${remember ? 'True' : 
   await closeDesktop();
   processHandle = launchProcess();
   await attach();
-  await until(() => evaluate("document.body.innerText.includes('今天有什么想聊的？')"));
+  await until(() => evaluate("document.body.innerText.includes('今天想做些什么？')"));
   // Sign-out must revoke the remembered session, not just hide the UI.
   await rpc('Runtime.evaluate', { expression: "fetch('/api/auth/logout', { method: 'POST', headers: { 'X-Sakuya-Client': 'workspace' } }).then(r => r.json())", awaitPromise: true, returnByValue: true });
   await rpc('Page.reload');
@@ -91,7 +90,7 @@ print(auth.issue_session(identifier, Response(), remember=${remember ? 'True' : 
   // A non-remembered cookie must disappear after a full application restart.
   await rpc('Network.setCookie', { name: 'sakuya_session', value: makeToken(false), url: 'http://127.0.0.1:8130', httpOnly: true, sameSite: 'Lax' });
   await rpc('Page.reload');
-  await until(() => evaluate("document.body.innerText.includes('今天有什么想聊的？')"));
+  await until(() => evaluate("document.body.innerText.includes('今天想做些什么？')"));
   await closeDesktop();
   processHandle = launchProcess();
   await attach();

@@ -16,7 +16,6 @@ test('未登录显示注册表单，密码要求与缺失配置提示明确', as
 
 test('工作首页保留聊天，右侧菜单打开功能且保留草稿', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: '工作', exact: true }).click();
   await expect(page.getByRole('heading', { name: '今天想做些什么？' })).toBeVisible();
   await page.getByLabel('聊天消息').fill('这段草稿应该保留');
   await page.getByRole('button', { name: '打开工作功能' }).hover();
@@ -29,20 +28,19 @@ test('工作首页保留聊天，右侧菜单打开功能且保留草稿', async
   await page.screenshot({ path: 'test-results/work-split.png', fullPage: true });
   await page.getByRole('button', { name: '收起功能区域' }).click();
   await expect(page.getByLabel('聊天消息')).toHaveValue('这段草稿应该保留');
-  await page.getByRole('button', { name: '聊天', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '今天有什么想聊的？' })).toBeVisible();
+  await page.getByRole('button', { name: 'Sakuya', exact: false }).click();
+  await expect(page.getByRole('heading', { name: '今天想做些什么？' })).toBeVisible();
 });
 
 test('普通账号进入聊天首页，可完成聊天、打开工作日历和个人设置', async ({ page, context }) => {
   await context.clearCookies();
   await context.addCookies([{ name: 'sakuya_session', value: session('user'), domain: '127.0.0.1', path: '/' }]);
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '今天有什么想聊的？' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '今天想做些什么？' })).toBeVisible();
   await page.screenshot({ path: 'test-results/regular-user-home.png', fullPage: true });
   await page.getByLabel('聊天消息').fill('普通账号的独立聊天');
   await page.getByRole('button', { name: '发送消息', exact: true }).click();
   await expect(page.locator('.markdown')).toContainText('这是演示回复');
-  await page.getByRole('button', { name: '工作', exact: true }).click();
   await page.getByRole('button', { name: '打开工作功能' }).hover();
   await page.getByRole('navigation', { name: '工作功能' }).getByRole('button', { name: '日历', exact: true }).click();
   await expect(page.locator('.work-feature .planner-root')).toBeVisible();
@@ -63,8 +61,9 @@ test('用户提交编辑工单，管理员接受并回复，内部备注不泄�
   await context.clearCookies();
   await context.addCookies([{ name: 'sakuya_session', value: userSession, domain: '127.0.0.1', path: '/' }]);
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '今天有什么想聊的？' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '今天想做些什么？' })).toBeVisible();
   await expect(page.getByRole('button', { name: '设置', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '设置', exact: true }).click();
   await page.getByRole('button', { name: '工单', exact: true }).click();
   await page.getByRole('button', { name: '新建工单', exact: true }).click();
   await page.getByRole('dialog').getByLabel('标题', { exact: true }).fill('账号工单测试');
@@ -116,11 +115,15 @@ test('多供应商列表与模型切换、思考滑条保存到真实队列', as
   const settings = await (await request.get('/api/settings')).json();
   const model = settings.models.find((m: { name: string }) => m.name === 'reasoner-one');
   providerId = model.provider_id;
-  await page.getByRole('button', { name: '聊天', exact: true }).click();
-  await page.getByLabel('聊天模型', { exact: true }).selectOption(model.id);
+  await page.getByRole('button', { name: 'Sakuya', exact: false }).click();
+  await page.getByRole('button', { name: '模型与思考强度' }).click();
+  await page.getByRole('button', { name: 'reasoner-one', exact: true }).click();
+  await page.screenshot({ path: 'test-results/model-list-popover.png', fullPage: true, animations: 'disabled' });
+  await page.getByRole('button', { name: /reasoner-one.*E2E/ }).click();
   await page.getByRole('slider', { name: '思考强度' }).fill('3');
-  await expect(page.locator('.reasoning-control output')).toHaveText('高');
-  await page.getByLabel('任务与日历 MCP', { exact: false }).uncheck();
+  await expect(page.locator('.reasoning-heading strong')).toHaveText('高');
+  await page.screenshot({ path: 'test-results/model-reasoning-popover.png', fullPage: true, animations: 'disabled' });
+  await page.keyboard.press('Escape');
   const response = page.waitForResponse(r => r.url().endsWith('/api/chat') && r.request().method() === 'POST');
   await page.getByLabel('聊天消息').fill('检查模型路由');
   await page.getByRole('button', { name: '发送消息' }).click();
