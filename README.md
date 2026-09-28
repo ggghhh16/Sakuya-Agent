@@ -2,9 +2,9 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-A local agent workspace for multi-turn chat, deep research, GitHub issue investigation, support tickets, tasks, and calendars. Built with React, TypeScript, Electron, FastAPI, and LangGraph.
+A local AI work assistant for managing tasks and calendars. Use chat to review your plans, create or update tasks and events, and keep the results in a local workspace. Built with React, TypeScript, Electron, FastAPI, and LangGraph.
 
-Sakuya opens to a minimal dark chat interface. Work mode keeps chat available while a side panel displays tasks, calendars, research, or diagnostics. Workspace data is stored locally.
+Sakuya opens to a minimal dark chat interface. The work view places your task lists and calendar beside the conversation. Your workspace data is stored locally; optional integrations connect selected lists to Google Calendar, Dida, or TickTick.
 
 ## Interface languages
 
@@ -17,13 +17,13 @@ Open the language menu beside the Sakuya title to choose English, Simplified Chi
 
 ## Features
 
+- **One place to plan work:** create lists, capture tasks, set priorities, and schedule work on a day, week, or month calendar.
+- **AI planning assistant:** ask a tool-capable model to read your current tasks and events, then create or update plans through the local task and calendar tools. Changes use the same workspace as the UI.
+- **Calendar connections:** bind a local list to Google Calendar and Dida or international TickTick, sync changes, and resolve conflicts in the app.
 - **Chat:** streaming multi-turn conversations, draggable task/calendar references, history search, rename, reorder, soft deletion with undo, and cancellation.
 - **Model settings:** multiple Chat Completions-compatible providers, model discovery, model selection, and optional reasoning effort.
-- **Deep research:** planning, document and web retrieval, bounded follow-up collection, cited Markdown reports, and optional reviewed experiments.
-- **Issue investigation (experimental, disabled by default):** enable experimental features in Settings to inspect a GitHub repository at a fixed commit, read candidate files and recent issues, and report possible causes with source links.
-- **Support tickets:** available from Settings, with user submissions, administrator assignment, status and priority management, public replies, and private internal notes.
 - **Tasks and calendars:** lists, priorities, day/week/month views, adjustable 1–14 day ranges, all-day events, drag and resize, and five-minute scheduling increments. Calendar editors appear beside events and dismiss on outside clicks. Existing-event edits save on outside clicks. All-day rows expand from a compact summary; focus mode adjusts the visible time range, and middle-button dragging pans the view. Tasks support selection from empty space and bulk actions.
-- **Integrations:** link lists to Google Calendar and Dida or international TickTick; optionally let a tool-capable chat model manage the planner.
+- **Deep research:** optional planning, document and web retrieval, and cited Markdown reports.
 - **Durable execution:** SQLite task queues, a separate worker, LangGraph checkpoints, review and resume, retries, cancellation, and recovery after worker heartbeat expiry.
 
 ## Getting started on Windows
@@ -61,7 +61,7 @@ Sign-in requires Cloudflare Turnstile. Public email registration additionally re
 
 Open `http://127.0.0.1:5173`. The local API listens at `http://127.0.0.1:8120`.
 
-Regular accounts have separate chat, research, planner, integration, and model settings. Users can submit and edit their own tickets and read public replies. Administrators manage all tickets and internal notes. Everyone must connect to the same backend to share ticket handling.
+Regular accounts have separate chat, research, planner, integration, and model settings. Each account connects to the same local backend but keeps its own workspace data and model configuration.
 
 ### Connect a model
 
@@ -109,7 +109,7 @@ A build launched from this source workspace reuses its existing `.data` director
 - `.env`, `.data`, dependencies, test output, caches, shortcuts, and packaged binaries are excluded from Git. Never upload user-data folders with the source.
 - Electron disables Node integration and enables context isolation and sandboxing. External HTTPS links open in the system browser.
 - Research requests use an allowed-host list. Direct requests reject local/private targets; redirects are rechecked. Trusted HTTPS proxies resolve allowed public domains on the proxy side.
-- Public ticket replies appear in the ticket and do **not** send email notifications. SMTP is currently used for registration codes.
+- SMTP is currently used for registration codes.
 
 Automated tests do not prove that a real Cloudflare challenge succeeds in every embedded desktop environment. Real Turnstile, SMTP delivery, OAuth, external synchronization, and model calls need separate checks using configured services.
 
@@ -136,7 +136,7 @@ node scripts/check-repository.mjs
 node scripts/check-locales.mjs
 ```
 
-Browser tests use isolated data in `.data/e2e-accounts` and ports 5179/8127. Windows tests use installed Chrome when available; otherwise install a browser with `npx playwright install chromium`. Language tests cover live switching, persistence, drafts, login and registration, calendar weekdays, settings, tickets, tab synchronization, and narrow-screen placement.
+Browser tests use isolated data in `.data/e2e-accounts` and ports 5179/8127. Windows tests use installed Chrome when available; otherwise install a browser with `npx playwright install chromium`. Language tests cover live switching, persistence, drafts, login and registration, calendar weekdays, settings, tab synchronization, and narrow-screen placement.
 
 If test-service cleanup is restricted, start `scripts/dev.mjs` separately with `SAKUYA_PORT=8127`, `VITE_PORT=5179`, and `SAKUYA_DATA_DIR` pointing to `.data/e2e-accounts`, then run Playwright with `SAKUYA_EXTERNAL_TEST_SERVER=1`. Local tests may require `NO_PROXY=127.0.0.1,localhost` and clearing proxy variables for that test process.
 
@@ -148,16 +148,15 @@ Fixed evaluation tasks are in `evals/tasks.jsonl`:
 .venv/Scripts/python.exe scripts/evaluate.py --mode live
 ```
 
-Evaluation records completion, latency, tokens, source counts, and citation-ID validity. These are process metrics, not answer accuracy. Citation support and diagnostic correctness require human review and baseline comparisons.
+Evaluation records completion, latency, tokens, source counts, and citation-ID validity. These are process metrics, not answer accuracy. Report quality still requires human review and baseline comparisons.
 
 ## Current limitations
 
 - Replies return as complete responses, rather than token streams.
 - Model context includes up to 12 recent successful turns of the same mode, with each historical message limited to 4,000 characters.
 - Document retrieval uses chunked keyword matching, including Chinese bigrams and English identifiers; there is no embedding or vector database retrieval.
-- Repository investigation reads a bounded set of files and may miss the cause. It does not clone and execute full repositories, create patches or pull requests, or send GitHub messages.
 - Knowledge-base navigation is currently hidden. Previously saved documents remain available to the backend.
-- PostgreSQL deployment, production multi-worker operations, and an internet-facing support service are not provided.
+- PostgreSQL deployment and production multi-worker operations are not provided.
 
 ## Project layout
 

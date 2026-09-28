@@ -2,7 +2,7 @@
   "name": "sakuya-agent",
   "version": "0.2.0",
   "private": true,
-  "description": "A local research, diagnosis and technical support agent workspace",
+  "description": "A local AI work assistant for managing tasks and calendars",
   "author": "Sakuya Agent contributors",
   "type": "module",
   "scripts": {
