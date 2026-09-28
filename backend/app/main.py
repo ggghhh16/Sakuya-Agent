@@ -3,6 +3,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,6 +17,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, Field, ConfigDict
 from . import db, settings, auth
 from .seed import seed
+from .edition import IS_CLIENT, LOCAL_USER, EDITION
 
 
 @asynccontextmanager
@@ -36,6 +38,10 @@ async def local_workspace_guard(request: Request, call_next):
     allowed_origins = {'http://127.0.0.1:5173', 'http://localhost:5173', 'http://127.0.0.1:4173', 'http://localhost:4173', 'http://127.0.0.1:8120', 'http://localhost:8120'}
     for port in (os.getenv('VITE_PORT', '5173'), os.getenv('SAKUYA_PORT', '8120')):
         allowed_origins.update({f'http://127.0.0.1:{port}', f'http://localhost:{port}'})
+    if IS_CLIENT:
+        allowed_origins = {f'http://{host}:{os.getenv("SAKUYA_PORT", "8121")}' for host in ('127.0.0.1', 'localhost')}
+        if not getattr(sys, 'frozen', False):
+            allowed_origins.update({f'http://{host}:{os.getenv("VITE_PORT", "5173")}' for host in ('127.0.0.1', 'localhost')})
     if origin and origin not in allowed_origins:
         return JSONResponse({'detail': '仅允许本机工作区访问'}, status_code=403)
     if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
@@ -49,6 +55,11 @@ async def local_workspace_guard(request: Request, call_next):
         except ValueError:
             return JSONResponse({'detail': '无效请求'}, status_code=400)
     path = request.url.path
+    if IS_CLIENT and (path == '/human-check' or path.startswith('/api/auth/') and path != '/api/auth/me'
+                      or re.match(r'^/api/tickets(?:/|$)', path) or path == '/api/settings/experimental'):
+        return JSONResponse({'detail': 'Client 不提供此功能'}, status_code=404)
+    if IS_CLIENT and path == '/api/auth/me' and request.method == 'GET':
+        return JSONResponse({'user': LOCAL_USER}, headers={'Cache-Control': 'no-store'})
     owner = None
     oauth_callback = re.fullmatch(r'/api/integrations/(google|dida|ticktick)/callback', path)
     if request.method == 'GET' and oauth_callback:
@@ -59,7 +70,7 @@ async def local_workspace_guard(request: Request, call_next):
         except HTTPException as exc:
             return JSONResponse({'detail': exc.detail}, status_code=exc.status_code)
     elif path.startswith('/api/') and path != '/api/health' and not path.startswith('/api/auth/'):
-        user = auth.current_user(request)
+        user = LOCAL_USER if IS_CLIENT else auth.current_user(request)
         if not user:
             return JSONResponse({'detail': '请先登录'}, status_code=401)
         request.state.user = user
@@ -178,6 +189,8 @@ def require(identifier, kind):
     item = db.get(identifier, kind)
     if item is None:
         raise HTTPException(404, '内容不存在或已移除')
+    if IS_CLIENT and (kind == 'ticket' or kind == 'run' and item.get('kind') == 'diagnosis'):
+        raise HTTPException(404, 'Client 不提供此功能')
     if kind == 'run' and item.get('kind') == 'diagnosis' and not settings.experimental_enabled():
         raise HTTPException(403, '请先在设置中开启实验性功能')
     return item
@@ -186,7 +199,7 @@ def require(identifier, kind):
 @app.get('/api/health')
 def health():
     pulse = db.DATA / 'worker.pulse'
-    return {'ok': True, 'service': 'sakuya-agent', 'protocol': 8, 'instance': os.getenv('SAKUYA_INSTANCE', ''), 'worker_online': pulse.exists() and time.time() - pulse.stat().st_mtime < 15, 'docker_available': bool(shutil.which('docker'))}
+    return {'ok': True, 'service': 'sakuya-agent', 'edition': EDITION, 'protocol': 8, 'instance': os.getenv('SAKUYA_INSTANCE', ''), 'worker_online': pulse.exists() and time.time() - pulse.stat().st_mtime < 15, 'docker_available': bool(shutil.which('docker'))}
 
 
 @app.get('/api/workspace')
@@ -198,7 +211,7 @@ def workspace(request: Request):
     conversations = db.conversations()
     visible_ids = {c['id'] for c in conversations}
     return {k: db.all_items(v) for k, v in [('projects', 'project'), ('documents', 'document')]} | {
-        'tickets': tickets,
+        'tickets': [] if IS_CLIENT else tickets,
         'conversations': conversations,
         'runs': [r for r in runs if r['kind'] != 'chat' and (r['kind'] != 'diagnosis' or settings.experimental_enabled())],
         'chats': [r for r in runs if r['kind'] == 'chat' and r.get('conversation_id') in visible_ids],
@@ -246,6 +259,8 @@ def restore_conversation(identifier: str):
 
 @app.post('/api/runs', status_code=201)
 def create_run(data: RunIn):
+    if IS_CLIENT and (data.kind == 'diagnosis' or data.ticket_id):
+        raise HTTPException(404, 'Client 不提供此功能')
     if data.kind == 'diagnosis' and not settings.experimental_enabled():
         raise HTTPException(403, '请先在设置中开启实验性功能')
     if data.repository and not re.fullmatch(r'https://github\.com/[\w.-]+/[\w.-]+/?', data.repository):
@@ -430,9 +445,15 @@ from .planner_mcp import router as planner_mcp_router
 app.include_router(planner_router)
 app.include_router(integrations_router)
 app.include_router(planner_mcp_router)
-app.include_router(auth.router)
+if not IS_CLIENT:
+    app.include_router(auth.router)
 from .model_settings import router as model_settings_router
 app.include_router(model_settings_router)
+
+if IS_CLIENT:
+    app.router.routes = [route for route in app.router.routes
+                         if not getattr(route, 'path', '').startswith('/api/tickets')
+                         and getattr(route, 'path', '') != '/api/settings/experimental']
 
 dist = Path(os.getenv('SAKUYA_WEB_DIR', str(Path(__file__).resolve().parents[2] / 'dist')))
 

@@ -39,6 +39,8 @@ Copy-Item .env.example .env
 
 This repository contains source code, not user data. Windows installers are available from [Releases](https://github.com/ggghhh16/Sakuya-Agent/releases).
 
+Choose **Client** for personal use: no Sakuya account or login is required, and tickets and Issue diagnosis are removed. **Dev** retains the original complete application and authentication flow. They use separate installation identities, data folders, and ports. Real AI features still require your own model API configuration. See [edition details](docs/EDITIONS.md); the authentication setup below applies to Dev.
+
 See the [v0.2.0 security review](docs/SECURITY-AUDIT-2026-09-28.md) for current checks and limits.
 
 ### Configure authentication first

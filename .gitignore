@@ -24,6 +24,8 @@ client-secret*.json
 *.p12
 *.pfx
 dist/
+dist-client/
+.data-client/
 release/
 release-planner/
 .build/

@@ -4,6 +4,11 @@ const { existsSync } = require('node:fs');
 const { LocalService } = require('./service.cjs');
 const { chromiumUserAgent, allowChallengeStorage } = require('./browser-policy.cjs');
 const { validLocale, readLocale, saveLocale, labels } = require('./locale.cjs');
+const edition = require('../package.json').sakuyaEdition === 'client' ? 'client' : 'dev';
+const isClient = edition === 'client';
+const productName = isClient ? 'Sakuya Client' : 'Sakuya';
+const editionEnv = name => process.env[isClient ? name.replace('SAKUYA_', 'SAKUYA_CLIENT_') : name];
+if (isClient) app.setPath('userData', join(app.getPath('appData'), 'Sakuya Client'));
 let language = 'en';
 let theme = 'dark';
 const titleBarColors = {
@@ -11,14 +16,14 @@ const titleBarColors = {
   light: { color: '#faf9f7', symbolColor: '#292d30', height: 31 },
 };
 app.userAgentFallback = chromiumUserAgent(app.userAgentFallback);
-const devUrl = process.env.SAKUYA_DEV_URL;
-const port = Number(process.env.SAKUYA_PORT || 8120);
+const devUrl = isClient ? undefined : process.env.SAKUYA_DEV_URL;
+const port = Number(editionEnv('SAKUYA_PORT') || (isClient ? 8121 : 8120));
 const serviceUrl = `http://127.0.0.1:${port}`;
 const target = devUrl === 'http://127.0.0.1:5173' ? devUrl : serviceUrl;
 let win, tray, service, starting, quitting = false;
 const panelWindows = new Set();
 let keepForBrowser = process.argv.includes('--web');
-if (process.env.SAKUYA_DESKTOP_DATA) app.setPath('userData', process.env.SAKUYA_DESKTOP_DATA);
+if (editionEnv('SAKUYA_DESKTOP_DATA')) app.setPath('userData', editionEnv('SAKUYA_DESKTOP_DATA'));
 
 const { safeExternal } = require('./external.cjs');
 const { restrictNavigation } = require('./navigation.cjs');
@@ -29,13 +34,13 @@ async function ensureService() {
   const root = app.isPackaged ? resolve(dirname(process.execPath), '../..') : resolve(__dirname, '..');
   // Continue using this workspace's data when launched from its build output.
   // A copied/distributed application uses the user's writable app-data folder.
-  const legacy = existsSync(join(root, 'backend/app/main.py')) && existsSync(join(root, '.data/workspace.sqlite'));
-  const dataDir = process.env.SAKUYA_DATA_DIR || (legacy ? join(root, '.data') : join(app.getPath('userData'), 'workspace'));
-  service = new LocalService({ port, dataDir,
+  const legacy = !isClient && existsSync(join(root, 'backend/app/main.py')) && existsSync(join(root, '.data/workspace.sqlite'));
+  const dataDir = editionEnv('SAKUYA_DATA_DIR') || (legacy ? join(root, '.data') : join(app.getPath('userData'), 'workspace'));
+  service = new LocalService({ port, dataDir, edition,
     command: app.isPackaged ? join(process.resourcesPath, 'backend/sakuya-service.exe') : join(root, '.venv/Scripts/python.exe'),
     args: app.isPackaged ? [] : [join(root, 'backend/service.py')],
     webDir: app.isPackaged ? join(process.resourcesPath, 'web') : join(root, 'dist'),
-    envFile: process.env.SAKUYA_ENV_FILE || (legacy ? join(root, '.env') : join(dataDir, '.env')),
+    envFile: editionEnv('SAKUYA_ENV_FILE') || (legacy ? join(root, '.env') : join(dataDir, '.env')),
   });
   starting = service.start();
   return starting;
@@ -44,7 +49,7 @@ function openWindow() {
   if (win && !win.isDestroyed()) { win.show(); if (win.isMinimized()) win.restore(); win.focus(); return; }
   win = new BrowserWindow({ width: 1440, height: 960, minWidth: 840, minHeight: 620, backgroundColor: titleBarColors[theme].color, title: 'Sakuya', icon: join(__dirname, 'sakuya.ico'), titleBarStyle: 'hidden', titleBarOverlay: titleBarColors[theme], autoHideMenuBar: true, show: !process.env.SAKUYA_TEST,
     webPreferences: { preload: join(__dirname, 'preload.cjs'), additionalArguments: [`--sakuya-language=${language}`], nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true } });
-  win.on('page-title-updated', event => { event.preventDefault(); win.setTitle('Sakuya'); });
+  win.on('page-title-updated', event => { event.preventDefault(); win.setTitle(productName); });
   win.webContents.session.setUserAgent(app.userAgentFallback);
   win.webContents.setUserAgent(app.userAgentFallback);
   win.webContents.setWindowOpenHandler(({ url }) => { if (safeExternal(url, target)) void shell.openExternal(url); return { action: 'deny' }; });
@@ -84,7 +89,7 @@ async function launch(web) {
 function updateTray() {
   if (!tray) return;
   const text = labels[language];
-  tray.setToolTip(text.tooltip);
+  tray.setToolTip(isClient ? productName : text.tooltip);
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: text.desktop, click: () => void launch(false) },
     { label: text.web, click: () => void launch(true) },
@@ -108,6 +113,7 @@ ipcMain.handle('sakuya:open-authorization', async (event, value) => {
   } catch {return false;}
 });
 ipcMain.handle('sakuya:detach-panel', async (event, options) => {
+  if (isClient && /^(?:tickets?|diagnosis)(?:\/|$)/.test(options?.route || '')) return {ok: false, error: 'Unavailable in Client'};
   if (!trustedWindow(event) || !options || typeof options.route !== 'string' || !/^(todos|calendar|research|diagnosis|settings|tickets|(?:run|ticket)\/[A-Za-z0-9_-]{1,100})$/.test(options.route)) return {ok: false, error: 'Invalid panel'};
   if (panelWindows.size >= 12) return {ok: false, error: 'Too many independent windows'};
   const point = {x: Number.isFinite(options.x) ? Math.round(options.x) : screen.getCursorScreenPoint().x, y: Number.isFinite(options.y) ? Math.round(options.y) : screen.getCursorScreenPoint().y};

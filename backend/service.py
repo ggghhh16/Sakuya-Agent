@@ -7,15 +7,18 @@ import threading
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--port', type=int, default=8120)
+    from app.edition import IS_CLIENT
+    parser.add_argument('--port', type=int, default=8121 if IS_CLIENT else 8120)
     parser.add_argument('--managed', action='store_true')
     parser.add_argument('--admin-email', help='创建或提升管理员后退出，不启动服务')
     args = parser.parse_args()
     os.environ['SAKUYA_PORT'] = str(args.port)
     if not os.getenv('SAKUYA_DATA_DIR'):
         from pathlib import Path
-        os.environ['SAKUYA_DATA_DIR'] = str(Path(os.getenv('LOCALAPPDATA', str(Path.home()))) / 'Sakuya Agent' / 'workspace')
+        os.environ['SAKUYA_DATA_DIR'] = str(Path(os.getenv('LOCALAPPDATA', str(Path.home()))) / ('Sakuya Client' if IS_CLIENT else 'Sakuya Agent') / 'workspace')
     if args.admin_email:
+        if IS_CLIENT:
+            parser.error('Client has no accounts')
         from app.auth import configure_admin
         configure_admin(args.admin_email)
         return

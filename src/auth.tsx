@@ -1,4 +1,5 @@
 import LanguageSwitch from './language-switch';
+import { isClient } from './edition';
 import { tr, useLocale } from './i18n';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -57,7 +58,7 @@ function HumanCheck({ siteKey, action, onToken, version }: { siteKey: string; ac
 
 export function AuthGate({ children }: { children: (user: User) => React.ReactNode }) {
   useLocale();
-  if (location.pathname === '/human-check') return <BrowserHumanCheckPage />;
+  if (!isClient && location.pathname === '/human-check') return <BrowserHumanCheckPage />;
   return <SessionGate>{children}</SessionGate>;
 }
 
@@ -95,6 +96,7 @@ function SessionGate({ children }: { children: (user: User) => React.ReactNode }
   if (session.isLoading) return <Loading />;
   if (session.error) return <div className="auth-shell"><p role="alert">{tr("无法连接本机服务：")}{tr(session.error.message)}</p><button className="button" onClick={() => session.refetch()}>{tr("重新连接")}</button></div>;
   if (session.data?.user) return children(session.data.user);
+  if (isClient) return <div className="auth-shell"><p role="alert">{tr("无法连接本机服务：")}Client</p><button className="button" onClick={() => session.refetch()}>{tr("重新连接")}</button></div>;
   return <AuthForm signedIn={() => { cache.clear(); void session.refetch(); }} />;
 }
 

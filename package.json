@@ -12,6 +12,8 @@
     "preview": "vite preview --host 127.0.0.1",
     "desktop": "electron .",
     "desktop:package": "node scripts/package.mjs",
+    "desktop:package:dev": "node scripts/package.mjs --edition=dev --installer",
+    "desktop:package:client": "node scripts/package.mjs --edition=client --installer",
     "test:e2e": "playwright test",
     "test:api": ".venv/Scripts/python.exe -m pytest backend/tests -q",
     "start:web": "electron . --web"

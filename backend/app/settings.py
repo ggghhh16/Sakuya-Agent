@@ -5,9 +5,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 from .db import DATA
 from . import db
+from .edition import IS_CLIENT
 from .private_storage import protect
 
-ENV_FILE = Path(os.getenv('SAKUYA_ENV_FILE', str(Path(__file__).resolve().parents[2] / '.env')))
+ENV_FILE = Path(os.getenv('SAKUYA_ENV_FILE', str(DATA / '.env' if IS_CLIENT else Path(__file__).resolve().parents[2] / '.env')))
 if ENV_FILE.is_file():
     protect(ENV_FILE)
 load_dotenv(ENV_FILE)
@@ -21,7 +22,7 @@ def config_path():
 
 
 def private_env(name, default=''):
-    return default if db.current_owner() else os.getenv(name, default)
+    return default if IS_CLIENT or db.current_owner() else os.getenv(name, default)
 
 
 def read_saved():
@@ -100,7 +101,7 @@ def public_config():
 
 
 def experimental_enabled():
-    return read_saved().get('experimental_features') is True
+    return not IS_CLIENT and read_saved().get('experimental_features') is True
 
 
 def save_config(values):

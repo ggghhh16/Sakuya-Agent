@@ -1,7 +1,10 @@
 from . import db
+from .edition import IS_CLIENT
 
 
 def seed():
+    if IS_CLIENT:
+        return
     if db.all_items('project'):
         return
     project = db.put('project', {'id': 'project_welcome', 'name': 'Sakuya 知识助手', 'description': '示例项目 · 探索研究、问题诊断与技术支持的完整工作流。', 'repository': '', 'color': 'sage', 'is_demo': True})

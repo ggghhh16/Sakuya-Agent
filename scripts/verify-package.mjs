@@ -4,6 +4,11 @@ import { normalize } from 'node:path';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 const release = process.argv[2] || `${JSON.parse(readFileSync('package.json', 'utf8')).build.directories.output}/win-unpacked`;
 const archive = `${release}/resources/app.asar`;
+const edition = process.argv[3];
+if (edition) {
+  assert.equal(JSON.parse(extractFile(archive, 'package.json')).sakuyaEdition, edition);
+  assert.equal(JSON.parse(readFileSync(`${release}/resources/backend/edition.json`, 'utf8')).edition, edition);
+}
 const files = listPackage(archive).map(p => p.replaceAll('\\', '/'));
 assert(files.includes('/dist/index.html'), 'Missing built frontend');
 assert(files.includes('/electron/main.cjs'), 'Missing Electron entry');

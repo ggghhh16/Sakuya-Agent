@@ -18,8 +18,8 @@ function probe(port) {
 }
 
 class LocalService {
-  constructor({ port, command, args = [], dataDir, webDir, envFile }) {
-    Object.assign(this, { port, command, args, dataDir, webDir, envFile });
+  constructor({ port, command, args = [], dataDir, webDir, envFile, edition = 'dev' }) {
+    Object.assign(this, { port, command, args, dataDir, webDir, envFile, edition });
     this.child = null;
   }
   async start() {
@@ -36,7 +36,7 @@ class LocalService {
     const logPath = join(this.dataDir, 'service.log');
     const fd = openSync(logPath, 'a');
     const environment = { ...process.env, PYTHONUTF8: '1', SAKUYA_PORT: String(this.port), SAKUYA_INSTANCE: instance,
-      SAKUYA_DATA_DIR: this.dataDir, SAKUYA_WEB_DIR: this.webDir, SAKUYA_ENV_FILE: this.envFile || join(this.dataDir, '.env') };
+      SAKUYA_EDITION: this.edition, SAKUYA_DATA_DIR: this.dataDir, SAKUYA_WEB_DIR: this.webDir, SAKUYA_ENV_FILE: this.envFile || join(this.dataDir, '.env') };
     delete environment.PYTHONHOME;
     delete environment.PYTHONPATH;
     let failure;

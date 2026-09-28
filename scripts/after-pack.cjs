@@ -4,7 +4,7 @@ module.exports = async context => {
   if (context.electronPlatformName !== 'win32') return;
   execFileSync(resolve('node_modules/electron-winstaller/vendor/rcedit.exe'), [
     join(context.appOutDir, context.packager.appInfo.productFilename + '.exe'),
-    '--set-icon', resolve('electron/sakuya.ico'), '--set-version-string', 'ProductName', 'Sakuya',
-    '--set-version-string', 'FileDescription', 'Sakuya',
+    '--set-icon', resolve('electron/sakuya.ico'), '--set-version-string', 'ProductName', context.packager.appInfo.productName,
+    '--set-version-string', 'FileDescription', context.packager.appInfo.productName,
   ], { windowsHide: true });
 };

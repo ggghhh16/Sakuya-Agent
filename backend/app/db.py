@@ -10,9 +10,10 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from .private_storage import protect
+from .edition import IS_CLIENT
 
 ROOT = Path(__file__).resolve().parents[2]
-DATA = Path(os.getenv('SAKUYA_DATA_DIR', str(ROOT / '.data')))
+DATA = Path(os.getenv('SAKUYA_DATA_DIR', str(ROOT / ('.data-client' if IS_CLIENT else '.data'))))
 DATA.mkdir(parents=True, exist_ok=True)
 protect(DATA)
 DB = DATA / 'workspace.sqlite'

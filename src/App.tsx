@@ -1,4 +1,5 @@
 import FeatureHeader from './feature-header';
+import { isClient, availableRoute, productName } from './edition';
 import { AutoImport } from './integration-settings';
 import './panel-interactions.css';
 import ThemeSwitch from './theme-switch';
@@ -31,7 +32,7 @@ const navigation = [
 ];
 
   const client = useQueryClient();
-  const [path, setPath] = useState(location.hash.slice(1) || 'work');
+  const [path, setPath] = useState(availableRoute(location.hash.slice(1) || 'work'));
   const detached = new URLSearchParams(location.search).get('panel') === '1';
   const sideKey = `sakuya-feature-side:${user.id}:${path.split('/')[0]}`;
   const [featureSide, setFeatureSide] = useState<'left' | 'right'>(() => localStorage.getItem(sideKey) === 'left' ? 'left' : 'right');
@@ -85,7 +86,7 @@ const navigation = [
   useEffect(() => { if (toastText) { const timer = setTimeout(() => setToastText(''), 4000); return () => clearTimeout(timer); } }, [toastText]);
   useEffect(() => { const handler = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); setHistory(false); setModal({ type: 'search' }); } }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, []);
   useEffect(() => { if (w && !w.settings.experimental_features && modal?.type === 'run' && modal.kind === 'diagnosis') setModal(null); }, [w?.settings.experimental_features, modal]);
-  const [view, id] = path.split('/');
+  const [view, id] = availableRoute(path).split('/');
   const admin = user.role === 'admin';
   const isChat = view === 'chat' || view === 'overview';
   const isWork = true;
@@ -105,8 +106,8 @@ const navigation = [
 
   return <div className={`app-shell minimal-shell ${detached ? "detached-window" : ""}`}><AutoImport accountId={user.id} toast={toast}/>
     <header className="quiet-header" inert={history || !!modal}>
-      <div className="header-left">{<button className="icon-button" aria-label={tr("打开聊天记录")} title={tr("聊天记录")} onClick={() => { setHoverHistory(false); setHistory(true); }}><PanelLeft size={19} /></button>}<button className="wordmark" onClick={() => navigate('chat')}><img src="/sakuya.svg" alt="" />Sakuya</button><ThemeSwitch /><LanguageSwitch /></div>
-      <div className="header-right"><span className="account-label" title={user.username}>{user.username}{admin ? ` · ${tr("管理员")}` : ''}</span>{<><button className="icon-button" aria-label={tr("新对话")} title={tr("新对话")} onClick={newChat}><SquarePen size={19} /></button><button className="icon-button" aria-label={tr("设置")} title={tr("设置")} onClick={() => navigate('settings')}><Settings size={19} /></button><ThemeSwitch control="toggle" /></>}<button className="icon-button" aria-label={tr("退出登录")} title={tr("退出登录")} onClick={() => void logout()}><LogOut size={18} /></button></div>
+      <div className="header-left">{<button className="icon-button" aria-label={tr("打开聊天记录")} title={tr("聊天记录")} onClick={() => { setHoverHistory(false); setHistory(true); }}><PanelLeft size={19} /></button>}<button className="wordmark" onClick={() => navigate('chat')}><img src="/sakuya.svg" alt="" />{productName}</button><ThemeSwitch /><LanguageSwitch /></div>
+      <div className="header-right">{!isClient && <span className="account-label" title={user.username}>{user.username}{admin ? ` · ${tr("管理员")}` : ''}</span>}{<><button className="icon-button" aria-label={tr("新对话")} title={tr("新对话")} onClick={newChat}><SquarePen size={19} /></button><button className="icon-button" aria-label={tr("设置")} title={tr("设置")} onClick={() => navigate('settings')}><Settings size={19} /></button><ThemeSwitch control="toggle" /></>}{!isClient && <button className="icon-button" aria-label={tr("退出登录")} title={tr("退出登录")} onClick={() => void logout()}><LogOut size={18} /></button>}</div>
     </header>
     {(isChat || isWork) && props ? <div ref={layout} style={{ '--chat-share': `${split}%` } as React.CSSProperties} className={`work-layout ${hasPanel ? 'has-panel' : ''} ${dragging ? 'is-resizing' : ''} feature-${featureSide}`} inert={history || !!modal}>
       <aside className="work-edge history-edge"><button ref={historyTrigger} className="work-edge-trigger" aria-label={tr("展开聊天记录")} onMouseEnter={() => { if (!dragging && !historyHover.current) { historyHover.current = true; setHoverHistory(true); setHistory(true); } }} onClick={() => { setHoverHistory(true); setHistory(true); }}><span /></button></aside>
