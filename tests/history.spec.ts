@@ -1,4 +1,10 @@
-import { test, expect } from './fixtures';
+import { test, expect, session } from './fixtures';
+
+// Administrators intentionally share the legacy workspace. History ordering
+// tests need a fresh personal workspace so prior tests cannot scroll rows away.
+test.use({ storageState: async ({}, use) => {
+  await use({ cookies: [{ name: 'sakuya_session', value: session('user'), domain: '127.0.0.1', path: '/', expires: -1, httpOnly: true, secure: false, sameSite: 'Lax' }], origins: [] });
+} });
 
 test('右键重命名和删除可保存，删除当前对话后可撤销', async ({ page, request }) => {
   const name = `记录操作 ${Date.now()}`;

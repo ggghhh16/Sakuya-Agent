@@ -93,17 +93,21 @@ def public_config():
     providers, models, default = catalog()
     return {'base_url': c['base_url'], 'model': c['model'], 'model_configured': bool(c['api_key'] and c['model']),
             'providers': [{k: v for k, v in p.items() if k != 'api_key'} | {'configured': bool(p.get('api_key'))} for p in providers],
-            'models': models, 'default_model_id': default,
+            'models': models, 'default_model_id': default, 'experimental_features': experimental_enabled(),
             'search_configured': bool(c['search_key']), 'github_configured': bool(c['github_token']),
             'allowed_hosts': os.getenv('RESEARCH_ALLOWED_HOSTS', DEFAULT_HOSTS).split(','),
-            'storage': 'SQLite · 本机工作区', 'version': '0.1.0'}
+            'storage': 'SQLite · 本机工作区', 'version': '0.2.0'}
+
+
+def experimental_enabled():
+    return read_saved().get('experimental_features') is True
 
 
 def save_config(values):
     with LOCK:
         saved = read_saved()
         for key, value in values.items():
-            if key in ('base_url', 'model', 'providers', 'models', 'default_model_id') or value:
+            if key in ('base_url', 'model', 'providers', 'models', 'default_model_id', 'experimental_features') or value:
                 saved[key] = value
         if 'providers' in saved:
             # Migration keeps credentials in the provider catalog only. Deleting a

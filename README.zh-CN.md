@@ -4,9 +4,11 @@
 
 一个以**多轮聊天**为首页，整合 **Deep Research、GitHub Issue 诊断与技术支持工单**的本地 Agent 应用。React + TypeScript 提供网页与 Electron 桌面界面，Python + LangGraph 执行有状态的研究工作流。
 
-主题设置与语言菜单位于 Sakuya 标题右侧，工单统一从设置进入。日历支持 1–14 天显示、相邻编辑浮窗、点击外部关闭和标题自动保存；已有日程的其他字段仍使用“保存”提交。详见 [最新界面更新](docs/UI-V7.md)。仓库仅包含源码，不包含用户数据或预编译桌面程序。
+主题设置与语言菜单位于 Sakuya 标题右侧，工单统一从设置进入。日历支持 1–14 天显示、相邻编辑浮窗、点击外部自动保存全部编辑；全天栏默认紧凑显示，可展开查看。聚焦模式可调整可视时间范围，鼠标中键可平移视图。详见 [最新界面更新](docs/UI-V7.md)。仓库仅包含源码，不包含用户数据；Windows 安装包见 [Release](https://github.com/ggghhh16/Sakuya-Agent/releases)。安全审查见 [v0.2.0 审查记录](docs/SECURITY-AUDIT-2026-09-28.md)。
 
 默认采用极简深色界面：聊天首页仅保留输入框和助手选择。聊天记录按需打开；工作模式保留聊天首页，右侧竖线展开任务清单、日历、研究与诊断。项目管理已移除，知识库入口暂时隐藏。菜单、侧边抽屉、弹窗和资料折叠区支持打开与收回动画，并遵循系统的减少动态效果设置。右上角设置旁提供主题切换与主题设置：Sakuya、A/、Notion 各有浅色和深色配色。
+
+聊天回复支持流式显示；任务支持从空白处拖动框选和批量操作。任务、时间块可拖入聊天，发送时将完整引用信息交给当前选中的模型。Issue 诊断默认隐藏，需在设置打开实验性功能后使用。
 
 ## 界面语言
 
@@ -20,14 +22,14 @@
 
 ## 日常使用：无需提前运行命令
 
-- 桌面端：双击项目根目录的 **Sakuya Desktop.lnk**，或 `release-security/win-unpacked/Sakuya Agent.exe`。
-- 普通账号工作区与记住登录新版位于 **`release-security/win-unpacked/Sakuya Agent.exe`**；桌面端在登录页内完成人机验证，不再跳转系统浏览器；真实 Cloudflare 通过状态仍需人工确认。旧版正在运行时，先从托盘选择退出，再使用根目录快捷方式重新打开。原 `.data` 会继续使用。
+- 桌面端：双击项目根目录的 **Sakuya Desktop.lnk**，或 `release-v020/win-unpacked/Sakuya Agent.exe`。
+- 普通账号工作区与记住登录新版位于 **`release-v020/win-unpacked/Sakuya Agent.exe`**；桌面端在登录页内完成人机验证，不再跳转系统浏览器；真实 Cloudflare 通过状态仍需人工确认。旧版正在运行时，先从托盘选择退出，再使用根目录快捷方式重新打开。原 `.data` 会继续使用。
 - 网页端：双击 **Sakuya Web.lnk**。应用会启动本地服务，随后打开默认浏览器，地址为 `http://127.0.0.1:8120`。
 - 网页模式在系统托盘后台运行；可以从托盘打开桌面端或选择「退出 Sakuya（停止本地服务）」。关闭浏览器不会自动停止服务。
 - 仅使用桌面端时，关闭窗口会停止由该应用启动的服务；如果已打开网页模式，关闭桌面窗口会保留后台服务。
 - 再次启动会复用已有实例，不重复启动后端，也不会关闭其他进程提供的服务。
 
-桌面包已包含 Python、后端依赖及网页资源，**日常使用不需要安装或手动运行 Node.js/Python**。复制到其他位置时保留整个 `release-security/win-unpacked` 文件夹，不要只复制 EXE。应用尚未签名。
+桌面包已包含 Python、后端依赖及网页资源，**日常使用不需要安装或手动运行 Node.js/Python**。复制到其他位置时保留整个 `release-v020/win-unpacked` 文件夹，不要只复制 EXE。应用尚未签名。
 
 普通浏览器书签无法启动一个已经关闭的本地程序；服务退出后使用 **Sakuya Web.lnk** 重新打开网页版。没有添加开机自启或系统服务。
 
@@ -144,7 +146,7 @@ docker pull python:3.12-slim
 node scripts/package.mjs
 ```
 
-网页产物在 `dist`，本次 Windows 桌面产物在 `release-security/win-unpacked/Sakuya Agent.exe`。完整应用目录包含独立 Python 后端，不需要另开命令行启动服务。
+网页产物在 `dist`，本次 Windows 桌面产物在 `release-v020/win-unpacked/Sakuya Agent.exe`。完整应用目录包含独立 Python 后端，不需要另开命令行启动服务。
 
 Electron 关闭 Node integration，开启 context isolation 与 sandbox；外部 HTTPS 链接由系统浏览器打开。
 

@@ -1,6 +1,6 @@
 {
   "name": "sakuya-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "A local research, diagnosis and technical support agent workspace",
   "author": "Sakuya Agent contributors",
@@ -43,7 +43,7 @@
     "npmRebuild": false,
     "electronDist": "node_modules/electron/dist",
     "directories": {
-      "output": "release-security"
+      "output": "release-v020"
     },
     "files": [
       "dist/**/*",
@@ -51,8 +51,9 @@
       "package.json"
     ],
     "win": {
-      "target": "portable",
-      "signAndEditExecutable": false
+      "target": "nsis",
+      "signAndEditExecutable": false,
+      "artifactName": "Sakuya-Agent-Setup-${version}-x64.exe"
     },
     "extraResources": [
       {
@@ -69,6 +70,17 @@
           "**/*"
         ]
       }
-    ]
+    ],
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "installerLanguages": [
+        "en_US",
+        "zh_CN",
+        "ja_JP"
+      ]
+    }
   }
 }

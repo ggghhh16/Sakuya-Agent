@@ -1,15 +1,18 @@
+import IntegrationSettings from './integration-settings';
 import { useLocale, tr } from './i18n';
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { capacityOptions } from './model-capacity';
 import { Plus, Settings2, Trash2, Ticket } from 'lucide-react';
 import { api } from './api';
 import type { PageProps } from './pages';
-import type { ModelProvider } from './types';
+import type { ModelProvider, Settings, Workspace } from './types';
 import { Field, PageHeader } from './ui';
 
 export default function ModelSettings({ workspace, refresh, toast, navigate }: PageProps) {
   useLocale();
   const settings = workspace.settings;
+  const cache = useQueryClient();
   const [editing, setEditing] = useState<string | null>(null), [name, setName] = useState(''), [base, setBase] = useState(''), [key, setKey] = useState('');
   const [provider, setProvider] = useState(settings.providers[0]?.id || ''), [available, setAvailable] = useState<string[]>([]), [model, setModel] = useState(''), [reasoning, setReasoning] = useState(false);
   const [contextWindow, setContextWindow] = useState('');
@@ -34,6 +37,8 @@ export default function ModelSettings({ workspace, refresh, toast, navigate }: P
       <Field label={tr("上下文容量（tokens）")} hint={limit ? tr("供应商报告上限：{0} tokens", [limit.toLocaleString()]) : tr("供应商未提供容量，请按模型文档选择；未指定时按 32K 估算")}><select disabled={busy} aria-label={tr("上下文容量（tokens）")} value={customCapacity ? 'custom' : effectiveCapacity} onChange={e => { setCustomCapacity(e.target.value === 'custom'); setContextWindow(e.target.value === 'custom' ? '' : e.target.value); }}>{!limit && <option value="">{tr("未指定（32K 估算）")}</option>}{capacityOptions(limit, Number(effectiveCapacity) || savedCapacity).map(n => <option key={n} value={n}>{n.toLocaleString()} tokens{n === limit ? ` · ${tr("模型上限")}` : ''}</option>)}<option value="custom">{tr("自定义容量")}</option></select></Field>{customCapacity && <Field label={tr("自定义容量")}><input aria-label={tr("自定义容量")} type="number" min="1024" max={limit || 10000000} value={contextWindow} onChange={e => setContextWindow(e.target.value)} /></Field>}<button className="button primary" disabled={busy || !provider || !model.trim() || !capacityValid} onClick={() => void action(async () => { await api('/settings/models', 'POST', { provider_id: provider, name: model, reasoning, context_window: effectiveCapacity ? Number(effectiveCapacity) : null }); setModel(''); setContextWindow(''); setCustomCapacity(false); toast("已加入聊天模型列表"); })}>{tr("添加到模型列表")}</button>
       <div className="model-list">{settings.models.map(m => <div className="provider-row" key={m.id}><div><strong>{m.name}</strong><small>{m.context_window ? `${m.context_window.toLocaleString()} tokens · ` : ''}{settings.providers.find(p => p.id === m.provider_id)?.name} · {m.reasoning ? tr("可调思考强度") : tr("默认思考强度")}</small></div><button className="button small" onClick={() => { if (provider !== m.provider_id) { setAvailable([]); setCapacities({}); } setProvider(m.provider_id); setModel(m.name); setCustomCapacity(false); setReasoning(m.reasoning); setContextWindow(m.context_window ? String(m.context_window) : ''); }}>{tr("编辑")}</button><button className="button small" disabled={busy || settings.default_model_id === m.id} onClick={() => void action(async () => { await api('/settings/default-model', 'PUT', { model_id: m.id }); })}>{settings.default_model_id === m.id ? tr("默认") : tr("设为默认")}</button><button className="icon-button" aria-label={tr("删除模型 {0}", [m.name])} disabled={busy} onClick={() => void action(async () => { await api(`/settings/models/${m.id}`, 'DELETE'); })}><Trash2 size={15} /></button></div>)}</div>
     </section><section className="settings-section"><h2>{tr("联网搜索")}</h2><Field label="Tavily API Key"><input type="password" autoComplete="new-password" placeholder={settings.search_configured ? tr("已配置；输入可替换") : tr("可选")} value={searchKey} onChange={e => setSearchKey(e.target.value)} /></Field><button className="button" disabled={busy || !searchKey} onClick={() => void action(async () => { await api('/settings/search', 'PUT', { search_key: searchKey }); setSearchKey(''); toast("搜索配置已保存"); })}>{tr("保存搜索配置")}</button></section></div>
+    <section className="settings-section"><h2>{tr('实验性功能')}</h2><label className="setting-row"><span>{tr('开启实验性功能')}</span><input type="checkbox" aria-label={tr('开启实验性功能')} checked={!!settings.experimental_features} disabled={busy} onChange={e=>{const enabled=e.target.checked;void action(async()=>{const next=await api<Settings>('/settings/experimental','PUT',{enabled});cache.setQueryData<Workspace>(['workspace'],current=>current?{...current,settings:next,runs:enabled?current.runs:current.runs.filter(run=>run.kind!=='diagnosis')}:current);});}}/></label><p className="muted">{tr('开启后可使用 Issue 诊断；关闭后隐藏入口和诊断记录，已有数据保留。')}</p></section>
+    <IntegrationSettings accountId={workspace.user.id}/>
     {message && <p role="status" className="settings-message">{tr(message)}</p>}
   </>;
 }

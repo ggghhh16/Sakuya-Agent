@@ -14,7 +14,7 @@
 .planner-editor-presence .nonmodal-backdrop .modal{pointer-events:auto}
 .planner-actions .planning-toggle,.planner-actions .planner-new{width:32px;height:32px;flex:0 0 32px;border:1px solid var(--line);border-radius:8px}
 .planner-actions .planner-new{background:var(--panel-hover)}
-.calendar-day-controls{display:flex;align-items:center;gap:2px;border-left:1px solid var(--line);padding-left:6px;margin-left:auto;white-space:nowrap}
+.calendar-day-controls{display:flex;align-items:center;gap:2px;border-left:1px solid var(--line);padding-left:6px;margin-left:0;white-space:nowrap}
 .calendar-day-controls span{font-size:10px;color:var(--muted);min-width:28px;text-align:center}
 .calendar-day-controls .icon-button{width:25px;height:30px}
 .calendar-event.compact-event{display:flex;align-items:center;gap:4px;padding:0 3px;line-height:1;overflow:visible}

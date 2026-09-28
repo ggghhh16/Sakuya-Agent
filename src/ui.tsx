@@ -21,7 +21,7 @@ export function Loading() {
 export function PageHeader({ icon, eyebrow, title, description, actions }: { icon: ReactNode; eyebrow?: string; title: string; description: string; actions?: ReactNode }) {
   useLocale(); return <div className="page-header"><div className="page-icon">{icon}</div>{eyebrow && <div className="eyebrow">{eyebrow}</div>}<div className="page-title-row"><h1>{title}</h1>{actions && <div className="page-actions">{actions}</div>}</div><p>{description}</p></div>; }
 export type FloatingRect = { left: number; right: number; top: number; bottom: number };
-export function Modal({ title, children, close, wide = false, leave, anchor, nonModal = false, hidden = false, outside }: { title: string; children: ReactNode; close: () => void; wide?: boolean; leave?: () => void; anchor?: FloatingRect | null; nonModal?: boolean; hidden?: boolean; outside?: () => void }) {
+export function Modal({ title, children, close, wide = false, leave, anchor, nonModal = false, hidden = false, outside, compact = false }: { title: string; children: ReactNode; close: () => void; wide?: boolean; leave?: () => void; anchor?: FloatingRect | null; nonModal?: boolean; hidden?: boolean; outside?: () => void; compact?: boolean }) {
   useLocale();
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{left: number; top: number}>();
@@ -31,6 +31,8 @@ export function Modal({ title, children, close, wide = false, leave, anchor, non
     if (!nonModal || hidden || !outside) return;
     let blockPress: {x: number; y: number} | null = null;
     const dismiss = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      if (ref.current?.closest('[inert], [data-state="closed"]')) return;
       const target = event.target as Element;
       blockPress = null;
       if (ref.current?.contains(target)) return;
@@ -59,7 +61,7 @@ export function Modal({ title, children, close, wide = false, leave, anchor, non
     const observer = new ResizeObserver(place); observer.observe(ref.current);
     window.addEventListener('resize', place);
     return () => { observer.disconnect(); window.removeEventListener('resize', place); };
-  }, [anchor, hidden]);
+  }, [anchor, hidden, compact]);
   useEffect(() => {
     if (hidden) return;
     const previous = document.activeElement as HTMLElement;
@@ -77,7 +79,7 @@ export function Modal({ title, children, close, wide = false, leave, anchor, non
     document.addEventListener('keydown', handler);
     return () => { clearTimeout(timer); document.removeEventListener('keydown', handler); if (ref.current?.contains(document.activeElement) || document.activeElement === document.body) previous?.focus(); };
   }, [close, hidden, nonModal]);
-  return <div style={hidden ? {display: 'none'} : undefined} className={`modal-backdrop ${anchor ? 'anchored-backdrop' : ''} ${nonModal ? 'nonmodal-backdrop' : ''}`} onMouseDown={e => e.target === e.currentTarget && close()}><div ref={ref} style={anchor && position ? {position: 'fixed', ...position} : undefined} onMouseLeave={leave} className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal={nonModal ? undefined : true} aria-label={title}><div className="modal-heading"><h2>{title}</h2><button className="icon-button" aria-label={tr("关闭弹窗")} onClick={close}><X size={18} /></button></div>{children}</div></div>;
+  return <div style={hidden ? {display: 'none'} : undefined} className={`modal-backdrop ${anchor ? 'anchored-backdrop' : ''} ${nonModal ? 'nonmodal-backdrop' : ''}`} onMouseDown={e => { if(e.target === e.currentTarget) (outside || close)(); }}><div ref={ref} style={{...(compact ? {zoom: .7, maxHeight: 'calc((100dvh - 56px) / .7)'} : {}), ...(anchor && position ? {position: 'fixed', left: position.left / (compact ? .7 : 1), top: position.top / (compact ? .7 : 1)} : {})}} onMouseLeave={leave} className={`modal ${wide ? 'modal-wide' : ''} ${compact ? 'compact-modal' : ''}`} role="dialog" aria-modal={nonModal ? undefined : true} aria-label={title}><div className="modal-heading"><h2>{title}</h2><button className="icon-button" aria-label={tr("关闭弹窗")} onClick={close}><X size={18} /></button></div>{children}</div></div>;
 }
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   useLocale(); return <label className="field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>; }

@@ -1,5 +1,6 @@
 """Check publishable files and reachable Git history without printing secret values."""
 import json
+import os
 import re
 import subprocess
 import sqlite3
@@ -19,11 +20,13 @@ patterns = {
     "provider-key": re.compile(rb"\b(?:sk-[A-Za-z0-9_-]{24,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[A-Z0-9]{16})\b"),
     "user-home": re.compile(rb"[A-Za-z]:[\\/]+Users[\\/]+(?!Public\b|Default\b)[^\s\"'<>\\/]+", re.I),
 }
-private_path = re.compile(r"(^|/)(?:\.data|\.venv|\.tools|\.build|dist|release[^/]*|node_modules|test-results|playwright-report|\.codex|__pycache__)(/|$)|\.(?:sqlite3?(?:-.*)?|db(?:-.*)?|pem|key|p12|pfx|lnk|har)$|(^|/)(?:\.env(?:\..*)?|provider\.json|credentials\.json)$", re.I)
+oauth_file = r'(?:google-client|client[_-]secret[^/]*)\.json'
+private_path = re.compile(r"(^|/)(?:\.data|\.venv|\.tools|\.build|dist|release[^/]*|node_modules|test-results|playwright-report|\.codex|__pycache__)(/|$)|\.(?:sqlite3?(?:-.*)?|db(?:-.*)?|pem|key|p12|pfx|lnk|har)$|(^|/)(?:\.env(?:\..*)?|provider\.json|credentials\.json|" + oauth_file + r')$', re.I)
 findings = []
 local_secrets = set()
 parser = argparse.ArgumentParser()
 parser.add_argument('--package', type=Path, help='Also scan an unpacked distribution, including binary exact-secret matches')
+parser.add_argument('--staged', action='store_true', help='Scan the actual Git index instead of working files')
 args = parser.parse_args()
 
 
@@ -39,7 +42,14 @@ def add_secrets(value):
             add_secrets(item)
 
 
-add_secrets(dotenv_values(ROOT / '.env'))
+environment = {**dotenv_values(ROOT / '.env'), **os.environ}
+add_secrets(environment)
+oauth_paths = {ROOT / '.data/oauth/google-client.json'}
+if environment.get('SAKUYA_GOOGLE_CLIENT_FILE'):
+    oauth_paths.add(Path(environment['SAKUYA_GOOGLE_CLIENT_FILE']))
+for path in oauth_paths:
+    if path.is_file():
+        add_secrets(json.loads(path.read_text('utf-8-sig')))
 workspace_dirs = [ROOT / '.data', *(ROOT / '.data/users').glob('*')]
 for path in (folder / 'provider.json' for folder in workspace_dirs if (folder / 'provider.json').is_file()):
     add_secrets(json.loads(path.read_text('utf-8')))
@@ -68,10 +78,12 @@ def inspect(label, path, content):
             findings.append({"source": label, "path": path, "line": content[:match.start()].count(b"\n") + 1, "rule": rule})
 
 
-files = sorted(set(git("ls-files", "--cached", "--others", "--exclude-standard", "-z").decode().split("\0")) - {""})
+files = sorted(set(git('ls-files', '--cached', *([] if args.staged else ['--others', '--exclude-standard']), '-z').decode().split('\0')) - {''})
 for filename in files:
     path = ROOT / filename
-    if path.is_file():
+    if args.staged:
+        inspect('index', filename, git('show', ':' + filename))
+    elif path.is_file():
         inspect("working-tree", filename, path.read_bytes())
 
 objects = {}
@@ -101,7 +113,7 @@ if args.package:
             continue
         package_count += 1
         relative = path.relative_to(package_root).as_posix()
-        if re.search(r'(^|/)(?:\.env(?:\..*)?|\.data|provider\.json|credentials\.json|tests?|test-results)(/|$)|\.(?:sqlite3?(?:-.*)?|db(?:-.*)?|key|p12|pfx|log|har|lnk)$', relative, re.I):
+        if re.search(r'(^|/)(?:\.env(?:\..*)?|\.data|provider\.json|credentials\.json|' + oauth_file + r'|tests?|test-results)(/|$)|\.(?:sqlite3?(?:-.*)?|db(?:-.*)?|key|p12|pfx|log|har|lnk)$', relative, re.I):
             findings.append({'source': 'package', 'path': relative, 'rule': 'private-path'})
         inspect('package', relative, path.read_bytes())
     # PyInstaller stores Python modules compressed: inspect the decompressed

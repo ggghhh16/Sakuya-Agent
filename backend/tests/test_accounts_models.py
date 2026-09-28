@@ -1,3 +1,4 @@
+from stream_fakes import model_response
 import hashlib
 import time
 from types import SimpleNamespace
@@ -160,7 +161,7 @@ def test_model_routing_snapshot_and_reasoning_reach_provider(client, monkeypatch
     captured = []
     def handle(request):
         captured.append(request)
-        return httpx.Response(200, json={'choices': [{'message': {'content': 'real adapter reply'}}], 'usage': {'total_tokens': 3}})
+        return model_response({'content': 'real adapter reply'}, 3)
     original = httpx.Client
     monkeypatch.setattr(providers.httpx, 'Client', lambda **kwargs: original(transport=httpx.MockTransport(handle)))
     execute(db.claim())
@@ -208,7 +209,7 @@ def test_planner_tool_chat_uses_selected_model_and_reasoning(client, monkeypatch
         message = {'role': 'assistant', 'content': '已读取本机任务'} if len(requests) > 1 else {
             'role': 'assistant', 'content': None, 'reasoning_content': '读取任务再回答',
             'tool_calls': [{'id': 'read-1', 'type': 'function', 'function': {'name': 'planner_read', 'arguments': '{}'}}]}
-        return httpx.Response(200, json={'choices': [{'message': message}], 'usage': {'total_tokens': 5}})
+        return model_response(message, 5)
     original = httpx.Client
     monkeypatch.setattr(providers.httpx, 'Client', lambda **kwargs: original(transport=httpx.MockTransport(handle)))
     result = client.post('/api/chat', json={'prompt': '查看任务', 'mode': 'live', 'planner_tools': True, 'model_id': mid, 'reasoning_effort': 'medium'})

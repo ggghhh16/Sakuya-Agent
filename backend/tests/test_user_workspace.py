@@ -67,7 +67,7 @@ def test_worker_uses_each_accounts_model_and_planner_context(client, monkeypatch
     _, bm = provider(bob, 'bob')
     # Actual LangGraph execution must propagate the workspace into its internal threads.
     seen = []
-    def model(messages, structured=False, run=None):
+    def model(messages, structured=False, run=None, on_delta=None):
         from app import planner
         seen.append((db.current_owner(), settings.config_for_run(run)['api_key']))
         planner.create_list(planner.ListIn(name='worker-' + db.current_owner()))

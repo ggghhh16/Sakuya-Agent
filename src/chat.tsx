@@ -12,6 +12,9 @@ import { Empty } from './ui';
 import ComposerSettings from './composer-settings';
 import { estimateContext } from './context-meter';
 import type { ApprovalMode } from './composer-settings';
+import type {PlannerData} from './planner-types';
+import {REFERENCE_MIME, readEntryDrag} from './planner-references';
+import type {PlannerReference} from './planner-references';
 
 
 export default function Chat({ workspace, conversationId, navigate, refresh, toast }: PageProps & { conversationId?: string; workMode?: boolean }) {
@@ -26,6 +29,30 @@ const assistants = [
   const cache = useQueryClient();
   const [assistant, setAssistant] = useState('chat');
   const [draft, setDraft] = useState('');
+  const [references, setReferences] = useState<PlannerReference[]>([]);
+  const [dropHover, setDropHover] = useState(false);
+  const attachmentContext = useRef(conversationId);
+  attachmentContext.current = conversationId;
+  async function attach(ids: string[]) {
+    if (!ids.length) return;
+    const context = conversationId;
+    try {
+      const data = await api<PlannerData>('/planner');
+      if (attachmentContext.current !== context) return;
+      const found = data.entries.filter(entry => ids.includes(entry.id)).map(entry => ({id: entry.id, title: entry.title, kind: entry.kind, entry, list_name: data.lists.find(list => list.id === entry.list_id)?.name || ''}));
+      if (found.length !== new Set(ids).size) setError(tr('部分引用不存在或已删除'));
+      setReferences(current => [...current, ...found.filter(item => !current.some(old => old.id === item.id))].slice(0, 30));
+      if (!['chat', 'planner'].includes(assistant)) setAssistant('chat');
+      input.current?.focus();
+    } catch (error) { setError((error as Error).message); }
+  }
+  useEffect(() => {
+    const receive = (event: Event) => { void attach((event as CustomEvent<string[]>).detail); };
+    window.addEventListener('sakuya-attach-entries', receive);
+    return () => window.removeEventListener('sakuya-attach-entries', receive);
+  }, [conversationId, assistant]);
+  useEffect(() => { setReferences([]); }, [conversationId, workspace.user.id]);
+  const jump = (reference: PlannerReference) => navigate(`${reference.kind === 'event' ? 'calendar' : 'todos'}/${reference.id}/${Date.now()}`);
   const [menu, setMenu] = useState<'options' | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -38,7 +65,31 @@ const assistants = [
   const bottom = useRef<HTMLDivElement>(null);
   const turns = (workspace.chats || []).filter(t => t.conversation_id === conversationId).sort((a, b) => a.created_at.localeCompare(b.created_at));
   const active = turns.find(t => ['queued', 'running', 'waiting'].includes(t.status));
-  const chosen = assistants.find(a => a.id === assistant)!;
+  const [streamed, setStreamed] = useState<{id: string; text: string} | null>(null);
+  useEffect(() => {
+    if (!active || active.status === 'waiting') return;
+    const id = active.id;
+    const source = new EventSource(`/api/runs/${id}/events`);
+    source.addEventListener('reply', event => {
+      const {text} = JSON.parse((event as MessageEvent).data);
+      setStreamed({id, text});
+    });
+    source.addEventListener('status', event => {
+      const {status} = JSON.parse((event as MessageEvent).data);
+      if (['completed', 'failed', 'cancelled', 'waiting'].includes(status)) {
+        source.close();
+        void cache.invalidateQueries({queryKey: ['workspace']});
+      }
+    });
+    return () => source.close();
+  }, [active?.id, active?.status, cache]);
+  useEffect(() => {
+    const container = bottom.current?.parentElement;
+    if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 160) bottom.current?.scrollIntoView({block: 'end'});
+  }, [streamed]);
+  const availableAssistants = assistants.filter(a => a.id !== 'diagnosis' || workspace.settings.experimental_features);
+  const chosen = availableAssistants.find(a => a.id === assistant) || assistants[0];
+  useEffect(() => { if (!workspace.settings.experimental_features && assistant === 'diagnosis') setAssistant('chat'); }, [workspace.settings.experimental_features, assistant]);
   const [modelId, setModelId] = useState(localStorage.getItem('sakuya-chat-model' + ':' + workspace.user.id) || workspace.settings.default_model_id);
   const [effort, setEffort] = useState(0);
   const efforts = ['default', 'low', 'medium', 'high'];
@@ -52,17 +103,19 @@ const assistants = [
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'end' }); }, [turns.length, lastStatus]);
 
   async function send() {
-    const prompt = draft.trim();
+    const prompt = draft.trim() || (references.length ? tr('请查看这些任务或日程') : '');
     if (!prompt || active || submitting.current) return;
+    if (assistant === 'diagnosis' && !workspace.settings.experimental_features) { setError(tr('请先在设置中开启实验性功能')); return; }
+    if (references.length && !['chat', 'planner'].includes(assistant)) { setError(tr('任务引用支持聊天助手和日程助手，请切换助手后发送')); return; }
     if (!['chat', 'planner'].includes(assistant) && prompt.length < 5) { setError("请再补充一点问题背景，至少输入 5 个字符。"); return; }
     submitting.current = true; setBusy(true); setError(''); setMenu(null);
     try {
       if (assistant === 'chat' || assistant === 'planner') {
-        const result = await api<{ conversation: Conversation; run: ChatTurn }>('/chat', 'POST', { prompt, assistant, conversation_id: conversationId || null, mode: demo ? 'demo' : 'live', planner_tools: plannerTools, approval_mode: approval, time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone, model_id: modelId || null, reasoning_effort: selectedModel?.reasoning ? efforts[effort] : 'default' });
+        const result = await api<{ conversation: Conversation; run: ChatTurn }>('/chat', 'POST', { prompt, reference_ids: references.map(item => item.id), assistant, conversation_id: conversationId || null, mode: demo ? 'demo' : 'live', planner_tools: plannerTools, approval_mode: approval, time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone, model_id: modelId || null, reasoning_effort: selectedModel?.reasoning ? efforts[effort] : 'default' });
         cache.setQueryData<Workspace>(['workspace'], current => current ? { ...current, conversations: [result.conversation, ...current.conversations.filter(c => c.id !== result.conversation.id)].sort((a, b) => a.position - b.position), chats: [...current.chats, result.run] } : current);
         sessionStorage.setItem(`sakuya-approval:${workspace.user.id}:${result.conversation.id}`, approval);
         sessionStorage.removeItem(`sakuya-approval:${workspace.user.id}:new`);
-        setDraft(''); refresh();
+        setDraft(''); setReferences([]); refresh();
         if (conversationId !== result.conversation.id) navigate(`chat/${result.conversation.id}`);
       } else {
         const result = await api<Run>('/runs', 'POST', { title: prompt.slice(0, 100), prompt, kind: assistant, mode: demo ? 'demo' : 'live', experiment, approval_mode: approval, model_id: modelId || null, reasoning_effort: selectedModel?.reasoning ? efforts[effort] : 'default' });
@@ -79,20 +132,22 @@ const assistants = [
   return <section className={`chat-page ${hasMessages ? 'with-messages' : 'empty-chat'}`}>
     {!hasMessages && <div className="chat-greeting"><span className="greeting-mark" aria-hidden="true">✳</span><h1>{tr("今天想做些什么？")}</h1></div>}
     {hasMessages && <div className="conversation" aria-label={tr("对话内容")}>{turns.map(turn => <div className="chat-turn" key={turn.id}>
-      <div className="user-message"><p>{turn.prompt}</p></div>
+      <div className="user-message"><p>{turn.prompt}</p>{!!turn.references?.length && <div className="chat-references">{turn.references.map(reference => <button key={reference.id} type="button" className="chat-reference" title={reference.list_name} onClick={() => jump(reference)}><CalendarDays size={13}/>{reference.title}<ArrowUpRight size={12}/></button>)}</div>}</div>
       <div className="assistant-message"><span className="assistant-mark" aria-hidden="true">✳</span><div className="assistant-content">
+        {!turn.report && (streamed?.id === turn.id ? streamed.text : turn.partial_report) && <div className="markdown streaming-reply"><ReactMarkdown disallowedElements={['img']} remarkPlugins={[remarkGfm]}>{streamed?.id === turn.id ? streamed.text : turn.partial_report}</ReactMarkdown></div>}
         {turn.tool_log?.length ? <div className="chat-tool-log">{turn.tool_log.map(t => <span key={t.id} className={t.error ? 'danger-text' : ''}>{t.error ? tr("失败") : tr("已执行")} · {t.name}</span>)}</div> : null}
         {turn.status === 'waiting' && turn.approval ? <div className="tool-approval"><strong>{tr('等待批准')}</strong><p>{tr(turn.approval.message)}</p><code>{turn.approval.name}</code><pre>{JSON.stringify(turn.approval.arguments, null, 2)}</pre><div><button type="button" className="button" onClick={() => void decide(turn, 'skip')}>{tr('拒绝')}</button><button type="button" className="button primary" onClick={() => void decide(turn, 'approve')}>{tr('批准执行')}</button></div></div> : turn.report ? <><div className="markdown"><ReactMarkdown disallowedElements={['img']} remarkPlugins={[remarkGfm]}>{turn.report}</ReactMarkdown></div><div className="message-tools">{turn.mode === 'demo' && <span>{tr("演示回复")}</span>}<button className="icon-button" aria-label={tr("复制回复")} onClick={async () => { try { await navigator.clipboard.writeText(turn.report); toast("已复制回复"); } catch { toast("复制失败，请手动选择文字复制"); } }}><Copy size={14} /></button></div></> : turn.status === 'failed' ? <div className="chat-failure"><p role="alert">{turn.error || tr("回复失败，请重试。")}</p><button className="text-button" onClick={() => retry(turn)} disabled={!!active}><RotateCcw size={13} />{tr("重试")}</button></div> : turn.status === 'cancelled' ? <p className="chat-muted">{tr("已停止生成")}</p> : <div className="reply-pending" role="status"><span /><span /><span /><small>{turn.status === 'queued' ? tr("等待回复") : tr("正在回复")}</small></div>}
       </div></div>
     </div>)}<div ref={bottom} /></div>}
-    <div className="composer-dock"><form className="chat-composer" onSubmit={e => { e.preventDefault(); void send(); }}>
+    <div className="composer-dock"><form data-planner-reference-drop className={`chat-composer ${dropHover?'reference-drop-hover':''}`} onDragOver={e=>{if(e.dataTransfer.types.some(type=>[REFERENCE_MIME,'text/sakuya-task'].includes(type))){e.preventDefault();e.dataTransfer.dropEffect='copy';setDropHover(true);}}} onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setDropHover(false);}} onDrop={e=>{const ids=readEntryDrag(e.dataTransfer);if(ids.length){e.preventDefault();e.stopPropagation();void attach(ids);}setDropHover(false);}} onSubmit={e => { e.preventDefault(); void send(); }}>
+      {!!references.length&&<div className="chat-references">{references.map(reference=><span className="chat-reference" key={reference.id}><button type="button" onClick={()=>jump(reference)}><CalendarDays size={13}/>{reference.title}<ArrowUpRight size={12}/></button><button type="button" aria-label={tr('移除引用 {0}',[reference.title])} onClick={()=>setReferences(items=>items.filter(item=>item.id!==reference.id))}>×</button></span>)}</div>}
       {assistant === 'planner' && <div className="active-assistant"><CalendarDays size={14}/>{tr('日程-任务管理助手')}<button type="button" onClick={() => navigate('calendar')}>{tr('打开日历')}</button></div>}<textarea ref={input} aria-label={tr("聊天消息")} placeholder={chosen.placeholder} value={draft} maxLength={16000} rows={1} onChange={e => { setDraft(e.target.value); setError(''); }} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); void send(); } }} />
-      <div className="composer-toolbar"><div className="composer-controls"><div className="popover-anchor"><button type="button" className={`composer-plus ${menu === 'options' ? 'expanded' : ''}`} aria-label={tr("对话选项")} aria-expanded={menu === 'options'} onClick={() => setMenu(menu === 'options' ? null : 'options')}><Plus size={21} /></button><Popover open={menu === 'options'} close={() => setMenu(null)} label={tr("对话选项")} className="options-popover"><div className="composer-options"><span className="popover-caption">{tr("选择助手")}</span>{assistants.map(a => <button key={a.id} type="button" className={`agent-option ${assistant === a.id ? 'selected' : ''}`} aria-pressed={assistant === a.id} onClick={() => { setAssistant(a.id); setMenu(null); input.current?.focus(); }}><a.icon size={18} /><span>{a.label}<small>{a.detail}</small></span>{assistant === a.id && <Check size={15} />}</button>)}<div className="popover-divider" /><span className="popover-caption">{tr("运行选项")}</span><label className="option-toggle"><span>{tr("演示模式")}</span><input type="checkbox" checked={demo} disabled={!workspace.settings.model_configured} onChange={e => setDemo(e.target.checked)} /></label>{!workspace.settings.model_configured && <button className="connection-link" type="button" onClick={() => navigate('settings')}>{tr("连接模型，开始真实对话")}<ArrowUpRight size={13} /></button>}{!['chat', 'planner'].includes(assistant) && <><label className="option-toggle"><span>{tr("生成验证实验")}</span><input type="checkbox" checked={experiment} onChange={e => setExperiment(e.target.checked)} /></label></>}</div></Popover></div></div>
-<ComposerSettings contextTokens={estimateContext(turns, draft, demo)} settings={workspace.settings} modelId={modelId} effort={effort} approval={approval} onModel={id => { setModelId(id); localStorage.setItem('sakuya-chat-model:' + workspace.user.id, id); setEffort(0); }} onEffort={setEffort} onApproval={mode => { setApproval(mode); sessionStorage.setItem(`sakuya-approval:${workspace.user.id}:${conversationId || 'new'}`, mode); }} />
+      <div className="composer-toolbar"><div className="composer-controls"><div className="popover-anchor"><button type="button" className={`composer-plus ${menu === 'options' ? 'expanded' : ''}`} aria-label={tr("对话选项")} aria-expanded={menu === 'options'} onClick={() => setMenu(menu === 'options' ? null : 'options')}><Plus size={21} /></button><Popover open={menu === 'options'} close={() => setMenu(null)} label={tr("对话选项")} className="options-popover"><div className="composer-options"><span className="popover-caption">{tr("选择助手")}</span>{availableAssistants.map(a => <button key={a.id} type="button" className={`agent-option ${assistant === a.id ? 'selected' : ''}`} aria-pressed={assistant === a.id} onClick={() => { setAssistant(a.id); setMenu(null); input.current?.focus(); }}><a.icon size={18} /><span>{a.label}<small>{a.detail}</small></span>{assistant === a.id && <Check size={15} />}</button>)}<div className="popover-divider" /><span className="popover-caption">{tr("运行选项")}</span><label className="option-toggle"><span>{tr("演示模式")}</span><input type="checkbox" checked={demo} disabled={!workspace.settings.model_configured} onChange={e => setDemo(e.target.checked)} /></label>{!workspace.settings.model_configured && <button className="connection-link" type="button" onClick={() => navigate('settings')}>{tr("连接模型，开始真实对话")}<ArrowUpRight size={13} /></button>}{!['chat', 'planner'].includes(assistant) && <><label className="option-toggle"><span>{tr("生成验证实验")}</span><input type="checkbox" checked={experiment} onChange={e => setExperiment(e.target.checked)} /></label></>}</div></Popover></div></div>
+<ComposerSettings contextTokens={estimateContext(turns, draft, demo, references)} settings={workspace.settings} modelId={modelId} effort={effort} approval={approval} onModel={id => { setModelId(id); localStorage.setItem('sakuya-chat-model:' + workspace.user.id, id); setEffort(0); }} onEffort={setEffort} onApproval={mode => { setApproval(mode); sessionStorage.setItem(`sakuya-approval:${workspace.user.id}:${conversationId || 'new'}`, mode); }} />
 
-      <div className="composer-end">{active ? <button type="button" className="send-button stop-button" aria-label={tr("停止生成")} onClick={() => void stop()}><Square size={14} fill="currentColor" /></button> : <button type="submit" className="send-button" aria-label={tr("发送消息")} disabled={!draft.trim() || busy}>{busy ? <LoaderCircle size={18} className="spin" /> : <ArrowUp size={19} />}</button>}</div></div>
+      <div className="composer-end">{active ? <button type="button" className="send-button stop-button" aria-label={tr("停止生成")} onClick={() => void stop()}><Square size={14} fill="currentColor" /></button> : <button type="submit" className="send-button" aria-label={tr("发送消息")} disabled={(!draft.trim() && !references.length) || busy}>{busy ? <LoaderCircle size={18} className="spin" /> : <ArrowUp size={19} />}</button>}</div></div>
 
-    </form><Presence show={!!error} className="composer-error"><p role="alert">{tr(error)}</p></Presence>{hasMessages && <p className="composer-footnote">{demo ? tr("演示回复未调用模型") : tr("AI 的回答可能有误，请核实重要信息")}</p>}</div>
-    {!hasMessages && <div className="chat-shortcuts"><button onClick={() => { setAssistant('research'); input.current?.focus(); }}><Globe size={15} />{tr("研究一个问题")}</button><button onClick={() => { setAssistant('diagnosis'); input.current?.focus(); }}><Bug size={15} />{tr("排查代码问题")}</button></div>}
+    </form><Presence show={!!error} className="composer-error"><p role="alert">{tr(error)}</p></Presence>{hasMessages && demo && <p className="composer-footnote">{tr("演示回复未调用模型")}</p>}</div>
+    {!hasMessages && <div className="chat-shortcuts"><button onClick={() => { setAssistant('research'); input.current?.focus(); }}><Globe size={15} />{tr("研究一个问题")}</button>{workspace.settings.experimental_features && <button onClick={() => { setAssistant('diagnosis'); input.current?.focus(); }}><Bug size={15} />{tr("排查代码问题")}</button>}</div>}
   </section>;
 }

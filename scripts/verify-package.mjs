@@ -1,8 +1,8 @@
 import { listPackage, extractFile } from '@electron/asar';
 import assert from 'node:assert/strict';
 import { normalize } from 'node:path';
-import { existsSync, readdirSync } from 'node:fs';
-const release = process.argv[2] || 'release-security/win-unpacked';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+const release = process.argv[2] || `${JSON.parse(readFileSync('package.json', 'utf8')).build.directories.output}/win-unpacked`;
 const archive = `${release}/resources/app.asar`;
 const files = listPackage(archive).map(p => p.replaceAll('\\', '/'));
 assert(files.includes('/dist/index.html'), 'Missing built frontend');
@@ -19,6 +19,6 @@ assert.deepEqual(suspicious, [], 'Suspicious credentials or private local paths'
 assert(existsSync(`${release}/resources/backend/sakuya-service.exe`), 'Missing standalone backend');
 assert(existsSync(`${release}/resources/web/index.html`), 'Missing service-hosted web UI');
 const runtimeFiles = readdirSync(`${release}/resources/backend`, { recursive: true }).map(p => p.replaceAll('\\', '/'));
-const privateFiles = runtimeFiles.filter(p => /(^|\/)(?:\.env(?:\..*)?|provider\.json|workspace\.sqlite(?:-.*)?|checkpoints\.sqlite(?:-.*)?|service\.log)$/.test(p));
+const privateFiles = runtimeFiles.filter(p => /(^|\/)(?:\.env(?:\..*)?|provider\.json|google-client\.json|client[_-]secret[^/]*\.json|workspace\.sqlite(?:-.*)?|checkpoints\.sqlite(?:-.*)?|service\.log)$/.test(p));
 assert.deepEqual(privateFiles, [], 'Runtime must not include private workspace data');
 console.log(JSON.stringify({ packagedFiles: files.length, bundledRuntimeFiles: runtimeFiles.length, frontendPresent: true, standaloneBackend: true, unexpectedWorkspaceFiles: unexpected, suspiciousFiles: suspicious, privateRuntimeFiles: privateFiles }));

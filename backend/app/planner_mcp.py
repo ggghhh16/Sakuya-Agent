@@ -170,15 +170,17 @@ def chat(messages, run_id):
             messages.append({'role': 'tool', 'tool_call_id': t['id'], 'content': json.dumps(result, ensure_ascii=False)})
             checkpoint()
     with httpx.Client(timeout=120) as model:
+        from .providers import stream_completion
+        from .chat_stream import ReplyStream
+        stream = ReplyStream(run_id)
         for _ in range(12):
             complete_tools()
             if db.get(run_id)['status'] == 'cancelled':
                 raise InterruptedError('任务已取消')
-            r = model.post(c['base_url'].rstrip('/') + '/chat/completions', headers={'Authorization': 'Bearer ' + c['api_key']}, json={'model': c['model'], 'messages': messages, 'tools': tools, 'max_tokens': 3200, **reasoning_payload(run)})
-            if r.status_code >= 400:
-                raise ValueError(f'模型工具调用返回 HTTP {r.status_code}；请使用支持 function calling 的模型')
-            value = r.json(); message = value['choices'][0]['message']
-            total += value.get('usage', {}).get('total_tokens', 0)
+            stream.reset()
+            message, tokens = stream_completion(model, c['base_url'].rstrip('/') + '/chat/completions', {'Authorization': 'Bearer ' + c['api_key']}, {'model': c['model'], 'messages': messages, 'tools': tools, 'max_tokens': 3200, **reasoning_payload(run)}, stream, stream.check)
+            stream.flush()
+            total += tokens
             messages.append(message)  # Preserve reasoning_content required by some providers.
             checkpoint()
             if not message.get('tool_calls'):

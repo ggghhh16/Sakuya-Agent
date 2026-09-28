@@ -10,9 +10,9 @@ export interface Document { id: string; title: string; content: string; project_
 export interface User { id: string; email: string; username: string; role: 'user' | 'admin' }
 export interface ModelProvider { id: string; name: string; base_url: string; configured: boolean }
 export interface ChatModel { id: string; provider_id: string; name: string; reasoning: boolean; context_window?: number | null }
-export interface Settings { providers: ModelProvider[]; models: ChatModel[]; default_model_id: string; model: string; base_url: string; model_configured: boolean; search_configured: boolean; github_configured: boolean; allowed_hosts: string[]; storage: string; version: string }
+export interface Settings { experimental_features?: boolean; providers: ModelProvider[]; models: ChatModel[]; default_model_id: string; model: string; base_url: string; model_configured: boolean; search_configured: boolean; github_configured: boolean; allowed_hosts: string[]; storage: string; version: string }
 export interface Conversation { id: string; title: string; position: number; created_at: string; updated_at: string }
-export interface ChatTurn extends Omit<Run, 'kind'> { kind: 'chat'; assistant?: 'chat' | 'planner'; conversation_id: string; tool_log?: {id: string; name: string; error: boolean}[] }
+export interface ChatTurn extends Omit<Run, 'kind'> { kind: 'chat'; partial_report?: string; references?: import('./planner-references').PlannerReference[]; assistant?: 'chat' | 'planner'; conversation_id: string; tool_log?: {id: string; name: string; error: boolean}[] }
 export interface Workspace { user: User; projects: Project[]; runs: Run[]; tickets: Ticket[]; documents: Document[]; settings: Settings; conversations: Conversation[]; chats: ChatTurn[] }
 export type ModalState = { type: 'run'; kind: RunKind; ticket?: Ticket } | { type: 'project'; project?: Project } | { type: 'ticket' } | { type: 'document'; document?: Document } | { type: 'search' } | null;
 export type Navigate = (path: string) => void;

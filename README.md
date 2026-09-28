@@ -17,12 +17,12 @@ Open the language menu beside the Sakuya title to choose English, Simplified Chi
 
 ## Features
 
-- **Chat:** persistent multi-turn conversations, history search, rename, reorder, soft deletion with undo, and cancellation.
+- **Chat:** streaming multi-turn conversations, draggable task/calendar references, history search, rename, reorder, soft deletion with undo, and cancellation.
 - **Model settings:** multiple Chat Completions-compatible providers, model discovery, model selection, and optional reasoning effort.
 - **Deep research:** planning, document and web retrieval, bounded follow-up collection, cited Markdown reports, and optional reviewed experiments.
-- **Issue investigation:** inspect a GitHub repository at a fixed commit, read candidate files and recent issues, and report possible causes with source links.
+- **Issue investigation (experimental, disabled by default):** enable experimental features in Settings to inspect a GitHub repository at a fixed commit, read candidate files and recent issues, and report possible causes with source links.
 - **Support tickets:** available from Settings, with user submissions, administrator assignment, status and priority management, public replies, and private internal notes.
-- **Tasks and calendars:** lists, priorities, day/week/month views, adjustable 1–14 day ranges, all-day events, drag and resize, and five-minute scheduling increments. Calendar editors appear beside events and dismiss on outside clicks. Title changes save automatically; other existing-event fields use Save.
+- **Tasks and calendars:** lists, priorities, day/week/month views, adjustable 1–14 day ranges, all-day events, drag and resize, and five-minute scheduling increments. Calendar editors appear beside events and dismiss on outside clicks. Existing-event edits save on outside clicks. All-day rows expand from a compact summary; focus mode adjusts the visible time range, and middle-button dragging pans the view. Tasks support selection from empty space and bulk actions.
 - **Integrations:** link lists to Google Calendar and Dida or international TickTick; optionally let a tool-capable chat model manage the planner.
 - **Durable execution:** SQLite task queues, a separate worker, LangGraph checkpoints, review and resume, retries, cancellation, and recovery after worker heartbeat expiry.
 
@@ -37,7 +37,9 @@ cd Sakuya-Agent
 Copy-Item .env.example .env
 ```
 
-This repository contains source code, not prebuilt binaries or user data.
+This repository contains source code, not user data. Windows installers are available from [Releases](https://github.com/ggghhh16/Sakuya-Agent/releases).
+
+See the [v0.2.0 security review](docs/SECURITY-AUDIT-2026-09-28.md) for current checks and limits.
 
 ### Configure authentication first
 
@@ -89,11 +91,11 @@ node scripts/package.mjs
 
 This builds the web interface, bundles the Python backend with PyInstaller, packages Electron, and creates `Sakuya Desktop.lnk` and `Sakuya Web.lnk` in the project root.
 
-- **Desktop:** open `Sakuya Desktop.lnk`, or `release-security/win-unpacked/Sakuya Agent.exe`.
+- **Desktop:** open `Sakuya Desktop.lnk`, or `release-v020/win-unpacked/Sakuya Agent.exe`.
 - **Browser:** open `Sakuya Web.lnk`. It starts the local service and opens `http://127.0.0.1:8120`.
 - `start.ps1` starts the packaged desktop app; `start.ps1 --web` starts browser mode.
 - Browser mode keeps the service in the system tray. Closing the browser does not stop it; exit Sakuya from the tray to stop the service it owns.
-- Closing the desktop window stops its service unless browser mode remains active. Compatible existing service instances are reused.
+- Closing the desktop window stops its service unless browser mode remains active. Only a service started and verified by this application instance is trusted.
 
 The complete packaged folder contains Python, dependencies, and web assets. End users do not need Node.js or Python. Copy the **entire `win-unpacked` folder**, not only the executable. The app is unsigned.
 

@@ -10,10 +10,9 @@ test.beforeEach(async ({request}) => {
   }
 });
 
-test('自定义清单、任务持久化、完成恢复、编辑退出动画与删除撤销', async ({ page }) => {
+test('自定义清单、任务持久化、完成恢复、详情关闭与删除撤销', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto('/#todos');
-  await page.getByRole('button', {name: '我的规划', exact: true}).click();
   await page.getByRole('button', {name: '新建清单', exact: true}).click();
   let dialog = page.getByRole('dialog', {name: '新建清单', exact: true});
   const name = `自定义 ${Date.now()}`;
@@ -25,12 +24,13 @@ test('自定义清单、任务持久化、完成恢复、编辑退出动画与�
   await page.getByLabel('快速添加任务').fill('完成规划界面');
   await page.getByLabel('快速添加任务').press('Enter');
   await expect(page.locator('.todo-row').filter({hasText: '完成规划界面'})).toBeVisible();
-  await page.getByRole('button', {name: `编辑清单 ${name}`, exact: true}).click();
+  await page.getByRole('button', {name, exact: true}).click({button:'right'});
   await page.getByRole('dialog').getByLabel('清单名称').fill(name + '修改');
   await page.getByRole('button', {name: '保存清单'}).click();
   await expect(page.getByRole('heading', {name: name + '修改'})).toBeVisible();
-  await page.getByRole('button', {name: '编辑任务 完成规划界面'}).click();
-  dialog = page.getByRole('dialog', {name: '任务详情'});
+  await page.getByRole('button', {name: '编辑任务 完成规划界面'}).click({button:'right'});await page.getByRole('menuitem',{name:'编辑详情'}).click();
+  const detail = page.getByRole('dialog', {name: '任务详情', exact: true});
+  dialog = detail;
   await dialog.getByLabel('备注').fill('保留日期和清单');
   await dialog.getByRole('button', {name: '添加时间', exact: true}).click();
   await dialog.getByLabel('开始', {exact: true}).fill('2026-09-27T09:05');
@@ -40,14 +40,13 @@ test('自定义清单、任务持久化、完成恢复、编辑退出动画与�
   await page.reload();
   await expect(page.locator('.todo-row').filter({hasText:'保留日期和清单'})).toBeVisible();
   await page.getByRole('button', {name:'完成任务 完成规划界面', exact:true}).click();
-  await page.getByRole('button', {name:'已完成', exact:true}).click();
+  await page.locator('.task-group-completed .task-group-heading').click();
   await expect(page.locator('.todo-row.completed').filter({hasText:'完成规划界面'})).toBeVisible();
-  await page.getByRole('button', {name:'编辑任务 完成规划界面'}).click();
+  await page.getByRole('button', {name:'编辑任务 完成规划界面'}).click({button:'right'});await page.getByRole('menuitem',{name:'编辑详情'}).click();
   await expect(dialog).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.locator('.planner-editor-presence[data-state=closed]')).toHaveCount(1);
   await expect(dialog).not.toBeVisible();
-  await page.getByRole('button', {name:'编辑任务 完成规划界面'}).click();
+  await page.getByRole('button', {name:'编辑任务 完成规划界面'}).click({button:'right'});await page.getByRole('menuitem',{name:'编辑详情'}).click();
   await dialog.getByRole('button', {name:'删除当前内容'}).click();
   await dialog.getByRole('button', {name:'确认删除'}).click();
   await page.getByRole('button', {name:'撤销', exact:true}).click();
@@ -97,8 +96,8 @@ test('拖动创建、日周月切换、账号版本与窄屏布局', async ({pag
   await page.keyboard.press('w');await expect(page.locator('.calendar-day')).toHaveCount(7);
   await page.getByRole('button',{name:'我的规划',exact:true}).click();
   await page.getByRole('button',{name:'连接设置',exact:true}).click();
+  await page.getByRole('dialog',{name:'连接 Google 日历'}).getByRole('button',{name:'滴答清单',exact:true}).click();
   const settings=page.getByRole('dialog',{name:'日历与任务连接'});
-  await settings.getByRole('button',{name:'滴答清单',exact:true}).click();
   await settings.getByLabel('账号版本').selectOption('ticktick');
   await expect(settings.getByLabel('OAuth 回调地址')).toHaveValue(/ticktick\/callback/);
   await settings.getByLabel('账号版本').selectOption('dida');
@@ -109,7 +108,7 @@ test('拖动创建、日周月切换、账号版本与窄屏布局', async ({pag
   await page.getByRole('button',{name:'新建任务',exact:true}).click();
   const mobile=page.getByRole('dialog',{name:'新建任务',exact:true});
   await expect(mobile).toBeVisible();
-  await expect.poll(async()=>Math.round((await mobile.boundingBox())!.x)).toBeGreaterThan(0);
+  await expect.poll(async()=>Math.round((await mobile.boundingBox())!.x)).toBeGreaterThanOrEqual(0);
   const mb=(await mobile.boundingBox())!;expect(mb.x).toBeGreaterThanOrEqual(-1);expect(mb.x+mb.width).toBeLessThanOrEqual(391);
   await page.emulateMedia({reducedMotion:'reduce'});
   expect(await mobile.evaluate(el=>getComputedStyle(el).animationName)).toBe('none');

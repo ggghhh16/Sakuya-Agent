@@ -21,6 +21,13 @@ export function usePlannerEditor(entry: Entry, autoTitle: boolean, paused: boole
   }, []);
   useEffect(() => { setDraft(entry); }, [entry, setDraft]);
   const acceptSaved = useCallback((value: Entry) => { baseline.current = value; setDraft(value); }, [setDraft]);
+  const hasChanges = useCallback(() => {
+    const normalized = (value: Entry) => {
+      const {revision: _, ...body} = entryBody(value);
+      return {...body, parent_id: value.parent_id || '', pinned: !!value.pinned, cancelled: !!value.cancelled, is_note: !!value.is_note, title: value.title.trim(), tags: [...new Set((value.tags || []).map(tag => tag.trim()).filter(Boolean))]};
+    };
+    return JSON.stringify(normalized(latest.current)) !== JSON.stringify(normalized(baseline.current));
+  }, []);
   const persist = useCallback(async (titleOnly = false): Promise<boolean> => {
     // A click outside or on Save may arrive while a debounced request is in flight.
     while (pending.current) { if (!await pending.current) return false; }
@@ -28,6 +35,7 @@ export function usePlannerEditor(entry: Entry, autoTitle: boolean, paused: boole
     const title = current.title.trim();
     const base = baseline.current;
     if (titleOnly && (!autoTitle || current.read_only || !title || (current.id === base.id && title === base.title.trim()))) return true;
+    if (!titleOnly && current.id && !hasChanges()) return true;
     if (current.read_only) return false;
     const snapshot = titleOnly && current.id && current.id === base.id ? {...base, title} : {...current, title};
     setBusy(true); setError('');
@@ -55,7 +63,7 @@ export function usePlannerEditor(entry: Entry, autoTitle: boolean, paused: boole
     })();
     pending.current = request;
     return request;
-  }, [autoTitle, cache, saved, setDraft]);
+  }, [autoTitle, cache, saved, setDraft, hasChanges]);
   useEffect(() => {
     if (!autoTitle || paused || draft.read_only || !draft.title.trim()) return;
     if (draft.id === baseline.current.id && draft.title.trim() === baseline.current.title.trim()) return;
@@ -63,5 +71,5 @@ export function usePlannerEditor(entry: Entry, autoTitle: boolean, paused: boole
     const timer = setTimeout(() => { void persist(true); }, 700);
     return () => clearTimeout(timer);
   }, [draft.title, autoTitle, paused, draft.read_only, persist]);
-  return {draft, setDraft, acceptSaved, busy, setBusy, error, setError, autoSaved, persist};
+  return {draft, setDraft, acceptSaved, busy, setBusy, error, setError, autoSaved, persist, hasChanges};
 }

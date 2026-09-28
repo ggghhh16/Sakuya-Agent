@@ -95,7 +95,8 @@ test('多供应商列表与模型切换、思考滑条保存到真实队列', as
     if (req.url === '/v1/models') { res.end(JSON.stringify({ data: [{ id: 'reasoner-one' }, { id: 'chat-two' }] })); return; }
     let body = ''; for await (const chunk of req) body += chunk;
     calls.push(JSON.parse(body));
-    res.end(JSON.stringify({ choices: [{ message: { content: '本机测试模型回复' } }], usage: { total_tokens: 10 } }));
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: '本机测试模型回复' }, finish_reason: 'stop' }], usage: { total_tokens: 10 } })}\n\ndata: [DONE]\n\n`);
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address() as { port: number };
@@ -132,6 +133,7 @@ test('多供应商列表与模型切换、思考滑条保存到真实队列', as
   expect(queued.run.reasoning_effort).toBe('high');
   await expect(page.locator('.assistant-content .markdown')).toContainText('本机测试模型回复');
   expect(calls[0].model).toBe('reasoner-one');
+  expect(calls[0].stream).toBe(true);
   expect(calls[0].reasoning_effort).toBe('high');
   } finally {
     if (providerId) await request.delete(`/api/settings/providers/${providerId}`, { headers });

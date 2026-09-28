@@ -222,6 +222,9 @@ def report(state):
 
 def chat(state):
     run = run_data(state)
+    from .chat_stream import ReplyStream
+    stream = ReplyStream(run['id'])
+    stream.reset()
     db.event(run['id'], 'chat', '正在回复')
     if run['mode'] == 'demo':
         time.sleep(.4)
@@ -231,15 +234,19 @@ def chat(state):
             text += f'\n\n这次对话已保留 {len(previous)} 轮历史消息，刷新后仍可继续。'
         text += '\n\n需要检索资料或排查问题时，可以在输入框中选择「深度研究」或「Issue 诊断」。'
         tokens = 0
+        for offset in range(0, len(text), 8):
+            stream(text[offset:offset + 8])
+            time.sleep(.035)
     elif run.get('planner_tools'):
         from .planner_mcp import chat as planner_chat
-        text, tokens = planner_chat([*run.get('history', []), {'role': 'user', 'content': run['prompt']}], run['id'])
+        text, tokens = planner_chat([*run.get('history', []), {'role': 'user', 'content': run.get('model_prompt', run['prompt'])}], run['id'])
     else:
         text, tokens = providers.model([
             {'role': 'system', 'content': '你是 Sakuya，一个清晰、可靠的中文聊天助手。根据上下文直接回答用户。当前为普通对话，没有联网、文件或执行工具；不要声称已经搜索或执行操作。用户需要检索或代码调查时，可建议选择输入框中的深度研究或 Issue 诊断。'},
-            *run.get('history', []), {'role': 'user', 'content': run['prompt']},
-        ], run=run)
+            *run.get('history', []), {'role': 'user', 'content': run.get('model_prompt', run['prompt'])},
+        ], run=run, on_delta=stream)
     run_data(state)
+    stream.flush()
     return {'report': text, 'tokens': tokens}
 
 

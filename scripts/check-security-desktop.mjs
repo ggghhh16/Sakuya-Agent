@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:net';
 import { request } from 'node:http';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { _electron as electron, expect } from '@playwright/test';
@@ -19,7 +19,8 @@ const env = { ...process.env, SAKUYA_TEST: '1', SAKUYA_PORT: String(port),
   SAKUYA_ENV_FILE: join(folder, 'absent.env'), TURNSTILE_SITE_KEY: '', TURNSTILE_SECRET_KEY: '',
   NO_PROXY: '127.0.0.1,localhost', NODE_USE_ENV_PROXY: '0' };
 for (const key of ['ELECTRON_RUN_AS_NODE', 'SAKUYA_DEV_URL', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY']) delete env[key];
-const app = await electron.launch({ executablePath: resolve('release-security/win-unpacked/Sakuya Agent.exe'), env, timeout: 30000 });
+const output = JSON.parse(readFileSync('package.json', 'utf8')).build.directories.output;
+const app = await electron.launch({ executablePath: resolve(process.argv[2] || `${output}/win-unpacked/Sakuya Agent.exe`), env, timeout: 30000 });
 try {
   const page = await app.firstWindow();
   await expect(page.getByRole('heading', { name: '登录 Sakuya' })).toBeVisible({ timeout: 30000 });

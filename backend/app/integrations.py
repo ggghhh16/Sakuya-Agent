@@ -9,16 +9,30 @@ import json
 import os
 import secrets
 import time
+from functools import wraps
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlencode
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse
 from pydantic import Field
 from . import db, planner
 from .security import safe_error
+from .google_client import application_client
 
 router = APIRouter(prefix='/api/integrations')
+OAUTH_PENDING_CLEARED = {'oauth_state': '', 'verifier': '', 'state_expires': 0}
+
+
+def serialized(function):
+    """Make credential replacement/revocation atomic with in-flight requests."""
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        with planner.lock:
+            return function(*args, **kwargs)
+    return wrapped
+
+
 PROVIDERS = {
     'google': {'auth': 'https://accounts.google.com/o/oauth2/v2/auth', 'token': 'https://oauth2.googleapis.com/token', 'api': 'https://www.googleapis.com/calendar/v3', 'scope': 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly'},
     'dida': {'auth': 'https://dida365.com/oauth/authorize', 'token': 'https://dida365.com/oauth/token', 'api': 'https://api.dida365.com/open/v1', 'scope': 'tasks:read tasks:write'},
@@ -34,11 +48,15 @@ def provider(name):
 
 def credentials(name):
     provider(name)
-    return db.get('integration_' + name, 'integration_secret') or {}
+    saved = db.get('integration_' + name, 'integration_secret') or {}
+    prefix = 'SAKUYA_' + name.upper() + '_'
+    application = application_client() if name == 'google' else {}
+    environment = {key: os.getenv(prefix + key.upper()) for key in ('client_id', 'client_secret') if os.getenv(prefix + key.upper())}
+    return {**application, **environment, **saved}
 
 
 def save(name, changes):
-    old = credentials(name)
+    old = db.get('integration_' + name, 'integration_secret')
     if old:
         return db.patch(old['id'], changes)
     return db.put('integration_secret', {'id': 'integration_' + name, **changes})
@@ -48,9 +66,21 @@ def redirect(name):
     return f"http://127.0.0.1:{os.getenv('SAKUYA_PORT', '8120')}/api/integrations/{name}/callback"
 
 
+def callback_owner(name, state):
+    provider(name)
+    if not state or len(state) > 200:
+        raise HTTPException(400, '授权请求已失效，请重新连接')
+    for owner in db.workspace_owners():
+        with db.workspace(owner):
+            c = credentials(name)
+            if secrets.compare_digest(state, c.get('oauth_state', '')) and time.time() <= c.get('state_expires', 0):
+                return owner
+    raise HTTPException(400, '授权请求已失效，请重新连接')
+
+
 @router.get('')
 def status():
-    return {name: {'configured': bool(credentials(name).get('client_id')), 'connected': bool(credentials(name).get('access_token')), 'redirect_uri': redirect(name), 'client_id': credentials(name).get('client_id', ''), 'secret_set': bool(credentials(name).get('client_secret'))} for name in PROVIDERS}
+    return {name: {'configured': bool(credentials(name).get('client_id')), 'connected': bool(credentials(name).get('access_token')), 'redirect_uri': redirect(name), 'client_id': credentials(name).get('client_id', ''), 'secret_set': bool(credentials(name).get('client_secret')), 'auto_import': bool(credentials(name).get('auto_import')), 'import_status': credentials(name).get('import_status', ''), 'import_message': credentials(name).get('import_message', '')} for name in PROVIDERS}
 
 
 class ConfigIn(planner.Strict):
@@ -63,6 +93,7 @@ class PersonalTokenIn(planner.Strict):
 
 
 @router.put('/{name}/personal-token')
+@serialized
 def personal_token(name: str, data: PersonalTokenIn):
     if name not in ('dida', 'ticktick'):
         raise ValueError('Google 日历请使用 OAuth 授权')
@@ -73,16 +104,17 @@ def personal_token(name: str, data: PersonalTokenIn):
             raise ValueError(f'Token 验证失败（HTTP {response.status_code}），请检查账号版本和权限')
     except httpx.HTTPError:
         raise ValueError('连接失败，Token 尚未保存') from None
-    save(name, {'access_token': data.token, 'refresh_token': '', 'expires_at': 0, 'auth_type': 'personal'})
+    save(name, {**OAUTH_PENDING_CLEARED, 'access_token': data.token, 'refresh_token': '', 'expires_at': 0, 'auth_type': 'personal'})
     return status()[name]
 
 
 @router.put('/{name}/config')
+@serialized
 def configure(name: str, data: ConfigIn):
     old = credentials(name)
     if old.get('access_token') and old.get('client_id') != data.client_id:
         raise HTTPException(409, '请先断开连接再更换 OAuth 应用')
-    changes = {'client_id': data.client_id}
+    changes = {**OAUTH_PENDING_CLEARED, 'client_id': data.client_id}
     if data.client_secret:
         changes['client_secret'] = data.client_secret
     save(name, changes)
@@ -90,9 +122,12 @@ def configure(name: str, data: ConfigIn):
 
 
 @router.post('/{name}/connect')
+@serialized
 def authorize(name: str):
     p, c = provider(name), credentials(name)
     if not c.get('client_id') or (name != 'google' and not c.get('client_secret')):
+        if name == 'google':
+            raise HTTPException(503, 'Sakuya 尚未配置 Google 应用登录。需要先完成应用注册，使用者无需填写 Client ID 或 Client Secret。')
         raise HTTPException(422, '请先填写 OAuth Client ID 和 Client Secret')
     state, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(64)
     save(name, {'oauth_state': state, 'verifier': verifier, 'state_expires': time.time() + 600})
@@ -102,6 +137,7 @@ def authorize(name: str):
     return {'url': p['auth'] + '?' + urlencode(query)}
 
 
+@serialized
 def token_request(name, data):
     c = credentials(name)
     kwargs = {'data': data}
@@ -123,12 +159,12 @@ def token_request(name, data):
 
 
 @router.get('/{name}/callback', response_class=HTMLResponse)
-def callback(name: str, state: str = '', code: str = '', error: str = ''):
+def callback(name: str, background_tasks: BackgroundTasks, state: str = '', code: str = '', error: str = ''):
     with planner.lock:
         c = credentials(name)
         if not state or not secrets.compare_digest(state, c.get('oauth_state', '')) or time.time() > c.get('state_expires', 0):
             raise HTTPException(400, '授权请求已失效，请从应用重新发起连接')
-        save(name, {'oauth_state': '', 'state_expires': 0})
+        save(name, OAUTH_PENDING_CLEARED)
         if error or not code:
             return '<meta charset="utf-8"><p>授权已取消，请返回 Sakuya。</p>'
         payload = {'code': code, 'grant_type': 'authorization_code', 'redirect_uri': redirect(name)}
@@ -137,15 +173,31 @@ def callback(name: str, state: str = '', code: str = '', error: str = ''):
         else:
             payload['scope'] = provider(name)['scope']
         token_request(name, payload)
-    return '<meta charset="utf-8"><style>body{background:#111315;color:#e2e4e7;font:18px system-ui;padding:60px}</style><h1>连接成功</h1><p>请返回 Sakuya，关闭此页面即可。</p>'
+        save(name, {'auto_import': True, 'import_status': 'running'})
+        background_tasks.add_task(import_after_authorization, name, db.current_owner())
+    return '<meta charset="utf-8"><style>body{background:#111315;color:#e2e4e7;font:18px system-ui;padding:60px}</style><h1>连接成功</h1><p>Sakuya 正在自动识别并导入日历与清单。请返回应用，可关闭此页面。</p>'
+
+
+def import_after_authorization(name, owner):
+    with db.workspace(owner):
+        try:
+            now = datetime.now(timezone.utc)
+            result = import_collections(ImportIn(start=(now-timedelta(days=60)).isoformat(), end=(now+timedelta(days=120)).isoformat(), providers=[name]))
+            save(name, {'import_status': 'done' if result['ok'] else 'error', 'import_message': '；'.join(e['message'] for e in result['errors'])})
+        except Exception as exc:
+            save(name, {'import_status': 'error', 'import_message': safe_error(exc)})
 
 
 @router.delete('/{name}/connection')
+@serialized
 def disconnect(name: str):
-    save(name, {'access_token': '', 'refresh_token': '', 'oauth_state': '', 'expires_at': 0})
+    provider(name)
+    save(name, {**OAUTH_PENDING_CLEARED, 'access_token': '', 'refresh_token': '', 'expires_at': 0,
+                'auto_import': False, 'import_status': '', 'import_message': ''})
     return {'ok': True}
 
 
+@serialized
 def request(name, method, path, **kwargs):
     c = credentials(name)
     if not c.get('access_token'):
@@ -200,25 +252,33 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-def task_version(t):
-    return digest({k: t.get(k) for k in ('title', 'content', 'startDate', 'dueDate', 'isAllDay', 'status', 'priority')})
+def task_version(t, legacy=False):
+    keys = ('title', 'content', 'startDate', 'dueDate', 'isAllDay', 'status', 'priority')
+    return digest({k: t.get(k) for k in (keys if legacy else (*keys, 'tags'))})
 
 
 def fields(name, remote):
     if name == 'google':
-        return {'title': remote.get('summary') or '未命名日程', 'notes': remote.get('description', ''), 'start': remote['start'].get('dateTime', remote['start'].get('date')), 'end': remote['end'].get('dateTime', remote['end'].get('date')), 'all_day': 'date' in remote['start'], 'location': remote.get('location', '')}
+        start = remote['start'].get('dateTime', remote['start'].get('date'))
+        end = remote.get('end', {}).get('dateTime', remote.get('end', {}).get('date'))
+        all_day = 'date' in remote['start']
+        if all_day:
+            end = max(date_from(end or start), date_from(start) + timedelta(days=1)).isoformat()
+        elif not end or datetime.fromisoformat(end) <= datetime.fromisoformat(start):
+            end = (datetime.fromisoformat(start) + timedelta(minutes=5)).isoformat()
+        return {'title': remote.get('summary') or '未命名日程', 'notes': remote.get('description', ''), 'start': start, 'end': end, 'all_day': all_day, 'location': remote.get('location', '')}
     start, end = remote.get('startDate'), remote.get('dueDate')
     if start and not end:
         end = (datetime.fromisoformat(start) + timedelta(minutes=30)).isoformat()
     if end and not start:
-        start = (datetime.fromisoformat(end) - timedelta(minutes=30)).isoformat()
+        start = end if remote.get('isAllDay') else (datetime.fromisoformat(end) - timedelta(minutes=30)).isoformat()
     if start and remote.get('isAllDay'):
         start = start[:10]
-        end = (date_from(end[:10]) + timedelta(days=1)).isoformat()
+        end = (max(date_from(start), date_from(end[:10])) + timedelta(days=1)).isoformat()
     elif start and datetime.fromisoformat(end) <= datetime.fromisoformat(start):
         # Deadline-only tasks still need a visible, editable block on the grid.
         end = (datetime.fromisoformat(start) + timedelta(minutes=5)).isoformat()
-    return {'title': remote.get('title') or '未命名任务', 'notes': remote.get('content', ''), 'start': start, 'end': end, 'all_day': bool(remote.get('isAllDay', False)), 'completed': remote.get('status') == 2, 'priority': {0: 'none', 1: 'low', 3: 'medium', 5: 'high'}.get(remote.get('priority'), 'none')}
+    return {'title': remote.get('title') or '未命名任务', 'notes': remote.get('content', ''), 'tags': remote.get('tags', []), 'start': start, 'end': end, 'all_day': bool(remote.get('isAllDay', False)), 'completed': remote.get('status') == 2, 'priority': {0: 'none', 1: 'low', 3: 'medium', 5: 'high'}.get(remote.get('priority'), 'none')}
 
 
 def date_from(value):
@@ -236,12 +296,12 @@ def payload(name, entry, target):
         end = (date_from(end) - timedelta(days=1)).isoformat() + 'T00:00:00+0000'
     def fmt(v):
         return datetime.fromisoformat(v).strftime('%Y-%m-%dT%H:%M:%S%z') if v else None
-    return {'title': entry['title'], 'content': entry['notes'], 'projectId': target, 'startDate': fmt(start), 'dueDate': fmt(end), 'isAllDay': entry['all_day'], 'priority': {'none': 0, 'low': 1, 'medium': 3, 'high': 5}[entry['priority']]}
+    return {'title': entry['title'], 'content': entry['notes'], 'tags': entry.get('tags', []), 'projectId': target, 'startDate': fmt(start), 'dueDate': fmt(end), 'isAllDay': entry['all_day'], 'priority': {'none': 0, 'low': 1, 'medium': 3, 'high': 5}[entry['priority']]}
 
 
-def sync_collection(name, listing, start, end):
+def sync_collection(name, listing, start, end, pull_only=False):
     target = listing['google_calendar_id'] if name == 'google' else listing['ticktick_project_id']
-    entries = [e for e in db.all_items('planner_entry') if e['list_id'] == listing['id']]
+    entries = [e for e in db.all_items('planner_entry') if e.get('sync_list_id', e['list_id']) == listing['id']]
     if name == 'google':
         remote_items = paged(gpath(target), {'timeMin': start, 'timeMax': end, 'singleEvents': 'true', 'showDeleted': 'true', 'maxResults': 2500})
     else:
@@ -265,6 +325,8 @@ def sync_collection(name, listing, start, end):
             except ValueError as exc:
                 errors.append({'id': entry['id'], 'message': safe_error(exc)})
     for entry in entries:
+        if listing.get('read_only') or entry.get('read_only') or entry.get('local_only_deleted') or pull_only or ((entry.get('is_note') or entry.get('cancelled')) and not entry.get('deleted')):
+            continue
         if name != 'google' and entry['kind'] != 'task':
             continue
         link = entry.get('remote', {}).get(name)
@@ -290,7 +352,7 @@ def sync_collection(name, listing, start, end):
                 else:
                     current = request(name, 'GET', '/project/' + quote(target, safe='') + '/task/' + quote(link['id'], safe=''))
                     version = task_version(current)
-                if version != link.get('version'):
+                if version != link.get('version') and not (name != 'google' and task_version(current, legacy=True) == link.get('version')):
                     raise ValueError('同步冲突：远程内容也已修改；请保留远程或保留本地后重试')
             if entry.get('deleted') or (name == 'google' and not entry['start']):
                 if link:
@@ -309,6 +371,8 @@ def sync_collection(name, listing, start, end):
                     result = request(name, 'PATCH', gpath(target, link['id']), json=body, headers={'If-Match': link['version']})
                 else:
                     body['id'] = link['id']
+                    if 'tags' not in entry:
+                        body['tags'] = current.get('tags', [])
                     canonical = fields(name, current)
                     if all(canonical[k] == entry[k] for k in ('start', 'end', 'all_day')):
                         for k in ('startDate', 'dueDate', 'isAllDay'):
@@ -365,17 +429,23 @@ def sync_collection(name, listing, start, end):
         except ValueError as exc:
             db.patch(entry['id'], {'sync_state': 'conflict' if '冲突' in str(exc) or '远程内容已修改' in str(exc) else 'error', 'sync_error': safe_error(exc)})
             errors.append({'id': entry['id'], 'message': safe_error(exc)})
-    linked = {e.get('remote', {}).get(name, {}).get('id'): e for e in db.all_items('planner_entry') if e['list_id'] == listing['id']}
+    linked = {e.get('remote', {}).get(name, {}).get('id'): e for e in db.all_items('planner_entry') if e.get('sync_list_id', e['list_id']) == listing['id']}
     for remote in remote_by_id.values():
         entry = linked.get(remote['id'])
         if name == 'google' and remote.get('status') == 'cancelled':
-            if entry and not entry.get('deleted') and entry.get('sync_state') not in ('error', 'conflict'):
+            if entry and not entry.get('deleted') and entry.get('sync_state') not in ('pending', 'error', 'conflict'):
                 links = dict(entry.get('remote', {})); links.pop(name, None)
                 db.patch(entry['id'], {'deleted': True, 'remote': links, 'revision': entry['revision'] + 1, 'sync_state': 'pending' if links else 'synced', 'delete_synced': True})
             continue
         if entry and (entry.get('deleted') or entry.get('sync_state') in ('error', 'conflict')):
             continue
         version = remote.get('etag') if name == 'google' else task_version(remote)
+        try:
+            # Validate each item independently: one malformed item must not stop a collection.
+            data = planner.EntryIn(list_id=listing['id'], kind='event' if name == 'google' else 'task', **fields(name, remote)).model_dump()
+        except (ValueError, TypeError, KeyError):
+            errors.append({'id': remote['id'], 'message': '有日程或任务的时间格式无效，已跳过；请在来源服务中检查开始与结束时间'})
+            continue
         if entry:
             if version == entry['remote'][name].get('version'):
                 continue
@@ -386,7 +456,6 @@ def sync_collection(name, listing, start, end):
             links = dict(entry['remote']); links[name] = {'id': remote['id'], 'version': version, 'local_revision': entry['revision'] + 1}
             db.patch(entry['id'], {**fields(name, remote), 'remote': links, 'revision': entry['revision'] + 1, 'sync_state': 'pending' if len(links) > 1 else 'synced'})
         else:
-            data = planner.EntryIn(list_id=listing['id'], kind='event' if name == 'google' else 'task', **fields(name, remote)).model_dump()
             db.put('planner_entry', {**data, 'revision': 1, 'sync_state': 'pending' if name != 'google' and listing.get('google_calendar_id') else 'synced', 'remote': {name: {'id': remote['id'], 'version': version, 'local_revision': 1}}, 'read_only': listing.get('read_only', False)})
     return errors
 
@@ -420,7 +489,7 @@ def synchronize(data: SyncIn):
                     errors.append({'id': listing['id'], 'message': safe_error(exc)})
             if not any(e['id'] == listing['id'] for e in errors):
                 for e in db.all_items('planner_entry'):
-                    if e['list_id'] == listing['id'] and not any(error['id'] == e['id'] for error in errors) and e.get('sync_state') != 'conflict':
+                    if not e.get('local_only_deleted') and e.get('sync_list_id', e['list_id']) == listing['id'] and not any(error['id'] == e['id'] for error in errors) and e.get('sync_state') != 'conflict':
                         links = e.get('remote', {})
                         expected = [n for n in selected if (n == 'google' and e.get('start')) or (n != 'google' and e['kind'] == 'task')]
                         outstanding = any(n not in links or links[n].get('local_revision', 0) != e['revision'] for n in expected) if not e.get('deleted') else bool(links)
@@ -436,7 +505,9 @@ class ResolveIn(planner.Strict):
 def resolve(identifier: str, name: str, data: ResolveIn):
     with planner.lock:
         entry = planner.require(identifier, 'planner_entry')
-        listing = planner.require(entry['list_id'], 'todo_list')
+        if data.keep == 'local':
+            planner.require_writable_entry(entry)
+        listing = planner.require(entry.get('sync_list_id', entry['list_id']), 'todo_list')
         link = entry.get('remote', {}).get(name)
         if not link:
             raise ValueError('没有对应远程记录')
@@ -453,3 +524,61 @@ def resolve(identifier: str, name: str, data: ResolveIn):
             return db.patch(identifier, {'remote': links, 'remote_epoch': epochs, 'deleted': data.keep == 'remote', 'delete_synced': data.keep == 'remote', 'revision': entry['revision'] + 1, 'sync_state': 'pending', 'sync_error': ''})
         links = dict(entry['remote']); links[name] = {'id': remote['id'], 'version': remote.get('etag') if name == 'google' else task_version(remote), 'local_revision': entry['revision'] + 1 if data.keep == 'remote' else 0}
         return db.patch(identifier, {**(fields(name, remote) if data.keep == 'remote' else {}), 'remote': links, 'revision': entry['revision'] + 1, 'sync_state': 'pending', 'sync_error': ''})
+
+
+class ImportPreference(planner.Strict):
+    enabled: bool
+
+
+@router.put('/{name}/auto-import')
+def auto_import_preference(name: str, data: ImportPreference):
+    save(name, {'auto_import': data.enabled})
+    return status()[name]
+
+
+class ImportIn(SyncIn):
+    providers: list[str] = Field(default_factory=list, max_length=3)
+    automatic: bool = False
+
+
+@router.post('/import')
+def import_collections(data: ImportIn):
+    a, b = datetime.fromisoformat(data.start), datetime.fromisoformat(data.end)
+    if not a.tzinfo or not b.tzinfo or not timedelta(0) < b - a <= timedelta(days=400):
+        raise ValueError('导入范围必须带时区且不超过 400 天')
+    names = data.providers or list(PROVIDERS)
+    for name in names:
+        provider(name)
+    errors, imported_lists = [], 0
+    with planner.lock:
+        for name in names:
+            config = credentials(name)
+            if not config.get('access_token') or (data.automatic and not config.get('auto_import')):
+                continue
+            error_start = len(errors)
+            try:
+                remote_lists = collections(name)
+                for remote in remote_lists:
+                    if any(l.get('local_only_deleted') and (
+                        (name == 'google' and l.get('google_calendar_id') == remote['id']) or
+                        (name != 'google' and l.get('ticktick_region', 'dida') == name and l.get('ticktick_project_id') == remote['id'])
+                    ) for l in db.all_items('todo_list')):
+                        continue
+                    listing = next((l for l in planner.active('todo_list') if
+                        (name == 'google' and l.get('google_calendar_id') == remote['id']) or
+                        (name != 'google' and l.get('ticktick_region', 'dida') == name and l.get('ticktick_project_id') == remote['id'])), None)
+                    if not listing:
+                        fields = {'name': remote['name'], 'google_calendar_id': remote['id']} if name == 'google' else {'name': remote['name'], 'ticktick_project_id': remote['id'], 'ticktick_region': name}
+                        identifier = 'import_' + hashlib.sha256((name + ':' + remote['id']).encode()).hexdigest()[:20]
+                        body = {'id': identifier, **planner.ListIn(**fields).model_dump(), 'read_only': remote.get('read_only', False), 'deleted': False}
+                        listing = db.patch(identifier, body) if db.get(identifier, 'todo_list') else db.put('todo_list', body)
+                        imported_lists += 1
+                    try:
+                        errors.extend(sync_collection(name, listing, data.start, data.end, pull_only=True))
+                    except ValueError as exc:
+                        errors.append({'id': listing['id'], 'message': safe_error(exc)})
+            except ValueError as exc:
+                errors.append({'id': name, 'message': safe_error(exc)})
+            messages = list(dict.fromkeys(error['message'] for error in errors[error_start:]))
+            save(name, {'import_status': 'error' if messages else 'done', 'import_message': '；'.join(messages)})
+    return {'ok': not errors, 'errors': errors, 'imported_lists': imported_lists, 'imported_at': db.now()}

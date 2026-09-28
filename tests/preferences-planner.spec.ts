@@ -87,7 +87,7 @@ test('日程助手通过聊天请求持久化；任务按钮顺序已交换', as
   await expect(page.locator('.active-assistant')).toHaveCount(0);
   await page.goto('/#todos');
   const sync = (await page.getByRole('button', {name: '同步日历与任务', exact: true}).boundingBox())!;
-  const planning = (await page.getByRole('button', {name: '我的规划', exact: true}).boundingBox())!;
+  const planning = (await page.getByRole('button', {name: '显示清单区域', exact: true}).boundingBox())!;
   expect(sync.x).toBeLessThan(planning.x);
   expect((await (await request.get('/api/workspace')).json()).chats.some((t: {id: string; assistant: string}) => t.id === payload.run.id && t.assistant === 'planner')).toBe(true);
 });

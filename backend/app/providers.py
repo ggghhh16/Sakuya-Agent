@@ -4,6 +4,7 @@ import json
 import os
 import re
 import socket
+import time
 from urllib.parse import urlparse, quote
 from urllib.request import getproxies, proxy_bypass
 import httpx
@@ -125,7 +126,83 @@ def github_sources(repository, prompt):
     return sources
 
 
-def model(messages, structured=False, run=None):
+MAX_STREAM_BYTES = 2_000_000
+MAX_STREAM_LINE_BYTES = 262_144
+MAX_STREAM_SECONDS = 300
+
+
+def bounded_stream_lines(response, check=None):
+    # Bound decoded bytes too: a compressed or unterminated SSE line must not
+    # accumulate without limit. Do not buffer chunks before publishing deltas.
+    pending = bytearray()
+    total, started = 0, time.monotonic()
+    for chunk in response.iter_bytes():
+        if check:
+            check()
+        total += len(chunk)
+        if total > MAX_STREAM_BYTES or time.monotonic() - started > MAX_STREAM_SECONDS:
+            raise ValueError('模型流式回复超过读取上限，请重试或缩小请求范围')
+        pending.extend(chunk)
+        while b'\n' in pending:
+            end = pending.index(b'\n')
+            if end > MAX_STREAM_LINE_BYTES:
+                raise ValueError('模型流式回复单行超过读取上限')
+            yield bytes(pending[:end]).rstrip(b'\r').decode('utf-8')
+            del pending[:end + 1]
+        if len(pending) > MAX_STREAM_LINE_BYTES:
+            raise ValueError('模型流式回复单行超过读取上限')
+    if pending:
+        yield pending.decode('utf-8')
+
+
+def stream_completion(client, url, headers, payload, on_delta, check=None):
+    """Read OpenAI-compatible SSE, including fragmented function arguments."""
+    message = {'role': 'assistant', 'content': ''}
+    calls, tokens, finished = {}, 0, False
+    with client.stream('POST', url, headers=headers, json={**payload, 'stream': True, 'stream_options': {'include_usage': True}}) as response:
+        if response.status_code >= 400:
+            raise ValueError(f'模型服务返回 HTTP {response.status_code}，请检查模型名称、连接地址与密钥权限')
+        for line in bounded_stream_lines(response, check):
+            if check:
+                check()
+            if not line.startswith('data:'):
+                continue
+            data = line[5:].strip()
+            if data == '[DONE]':
+                finished = True
+                break
+            if not data:
+                continue
+            value = json.loads(data)
+            if value.get('error'):
+                raise ValueError('模型流式回复失败，请重试')
+            tokens = (value.get('usage') or {}).get('total_tokens', tokens)
+            for choice in value.get('choices', []):
+                if choice.get('index', 0) != 0:
+                    continue
+                finished = finished or bool(choice.get('finish_reason'))
+                delta = choice.get('delta') or {}
+                for key in ('content', 'reasoning_content'):
+                    if isinstance(delta.get(key), str):
+                        message[key] = message.get(key, '') + delta[key]
+                        if key == 'content':
+                            on_delta(delta[key])
+                for part in delta.get('tool_calls') or []:
+                    if type(part.get('index')) is not int or not 0 <= part['index'] < 128:
+                        raise ValueError('模型返回了无效或过多的工具调用')
+                    call = calls.setdefault(part['index'], {'id': '', 'type': 'function', 'function': {'name': '', 'arguments': ''}})
+                    if part.get('id'):
+                        call['id'] = part['id']
+                    for key in ('name', 'arguments'):
+                        call['function'][key] += (part.get('function') or {}).get(key) or ''
+    if not finished:
+        raise ValueError('模型回复连接中断，请重试')
+    if calls:
+        message['tool_calls'] = [calls[i] for i in sorted(calls)]
+    return message, tokens
+
+
+def model(messages, structured=False, run=None, on_delta=None):
     from .settings import config_for_run, reasoning_payload
     c = config_for_run(run) if run else config()
     if not c['api_key'] or not c['model']:
@@ -135,6 +212,11 @@ def model(messages, structured=False, run=None):
     if structured:
         payload['response_format'] = {'type': 'json_object'}
     with httpx.Client(timeout=httpx.Timeout(100, connect=15), trust_env=True) as client:
+        if on_delta is not None and not structured:
+            message, tokens = stream_completion(client, c['base_url'].rstrip('/') + '/chat/completions', {'Authorization': f"Bearer {c['api_key']}"}, payload, on_delta, getattr(on_delta, 'check', None))
+            if not message['content'].strip():
+                raise ValueError('模型返回了空文本')
+            return message['content'], tokens
         r = client.post(c['base_url'].rstrip('/') + '/chat/completions', headers={'Authorization': f"Bearer {c['api_key']}"}, json=payload)
         if r.status_code >= 400:
             raise ValueError(f'模型服务返回 HTTP {r.status_code}，请检查模型名称、连接地址与密钥权限')

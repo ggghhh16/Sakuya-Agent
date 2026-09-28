@@ -26,7 +26,7 @@ async def lifespan(app):
     yield
 
 
-app = FastAPI(title='Sakuya Agent API', version='0.1.0', lifespan=lifespan)
+app = FastAPI(title='Sakuya Agent API', version='0.2.0', lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=['127.0.0.1', 'localhost', 'testserver'])
 
 
@@ -50,7 +50,15 @@ async def local_workspace_guard(request: Request, call_next):
             return JSONResponse({'detail': '无效请求'}, status_code=400)
     path = request.url.path
     owner = None
-    if path.startswith('/api/') and path != '/api/health' and not path.startswith('/api/auth/'):
+    oauth_callback = re.fullmatch(r'/api/integrations/(google|dida|ticktick)/callback', path)
+    if request.method == 'GET' and oauth_callback:
+        from .integrations import callback_owner
+        from starlette.concurrency import run_in_threadpool
+        try:
+            owner = await run_in_threadpool(callback_owner, oauth_callback[1], request.query_params.get('state', ''))
+        except HTTPException as exc:
+            return JSONResponse({'detail': exc.detail}, status_code=exc.status_code)
+    elif path.startswith('/api/') and path != '/api/health' and not path.startswith('/api/auth/'):
         user = auth.current_user(request)
         if not user:
             return JSONResponse({'detail': '请先登录'}, status_code=401)
@@ -108,6 +116,7 @@ class RunIn(StrictModel):
 
 
 class ChatIn(StrictModel):
+    reference_ids: list[str] = Field(default_factory=list, max_length=30)
     prompt: str = Field(min_length=1, max_length=16000)
     conversation_id: str | None = None
     mode: Literal['demo', 'live'] = 'demo'
@@ -169,6 +178,8 @@ def require(identifier, kind):
     item = db.get(identifier, kind)
     if item is None:
         raise HTTPException(404, '内容不存在或已移除')
+    if kind == 'run' and item.get('kind') == 'diagnosis' and not settings.experimental_enabled():
+        raise HTTPException(403, '请先在设置中开启实验性功能')
     return item
 
 
@@ -189,7 +200,7 @@ def workspace(request: Request):
     return {k: db.all_items(v) for k, v in [('projects', 'project'), ('documents', 'document')]} | {
         'tickets': tickets,
         'conversations': conversations,
-        'runs': [r for r in runs if r['kind'] != 'chat'],
+        'runs': [r for r in runs if r['kind'] != 'chat' and (r['kind'] != 'diagnosis' or settings.experimental_enabled())],
         'chats': [r for r in runs if r['kind'] == 'chat' and r.get('conversation_id') in visible_ids],
         'settings': settings.public_config(), 'user': user,
     }
@@ -204,6 +215,9 @@ def send_chat(data: ChatIn):
     selection = settings.resolve_model(data.model_id, data.reasoning_effort) if data.mode == 'live' else {}
     selection['approval_mode'] = data.approval_mode
     selection['assistant'] = data.assistant
+    from .chat_references import snapshots, model_prompt
+    selection['references'] = snapshots(data.reference_ids)
+    selection['model_prompt'] = model_prompt(data.prompt, selection['references'])
     return db.queue_chat(data.prompt, data.conversation_id, data.mode, data.planner_tools or data.assistant == 'planner', data.time_zone, selection)
 
 
@@ -232,6 +246,8 @@ def restore_conversation(identifier: str):
 
 @app.post('/api/runs', status_code=201)
 def create_run(data: RunIn):
+    if data.kind == 'diagnosis' and not settings.experimental_enabled():
+        raise HTTPException(403, '请先在设置中开启实验性功能')
     if data.repository and not re.fullmatch(r'https://github\.com/[\w.-]+/[\w.-]+/?', data.repository):
         raise ValueError('请填写 GitHub 仓库主页地址')
     if data.ticket_id:
@@ -277,6 +293,7 @@ async def stream_events(identifier: str, request: Request, after: int = 0):
     require(identifier, 'run')
     async def generate():
         cursor = after
+        previous_reply = None
         while not await request.is_disconnected():
             user = auth.current_user(request)
             if not user or user['id'] != request.state.user['id']:
@@ -285,10 +302,18 @@ async def stream_events(identifier: str, request: Request, after: int = 0):
                 cursor = event['seq']
                 yield f'id: {cursor}\nevent: progress\ndata: {json.dumps(event, ensure_ascii=False)}\n\n'
             run = db.get(identifier)
+            if not run:
+                break
+            if run.get('kind') == 'diagnosis' and not settings.experimental_enabled():
+                break
+            reply = run.get('report') if run['status'] == 'completed' else run.get('partial_report', '')
+            if run.get('kind') == 'chat' and reply != previous_reply:
+                yield f'event: reply\ndata: {json.dumps({"text": reply}, ensure_ascii=False)}\n\n'
+                previous_reply = reply
             yield f'event: status\ndata: {json.dumps({"status": run["status"]})}\n\n'
             if run['status'] in {'completed', 'failed', 'cancelled', 'waiting'}:
                 break
-            await asyncio.sleep(1)
+            await asyncio.sleep(.1 if run.get('kind') == 'chat' else 1)
     return StreamingResponse(generate(), media_type='text/event-stream', headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'})
 
 

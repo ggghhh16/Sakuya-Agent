@@ -1,0 +1,12 @@
+import {useEffect,useLayoutEffect,useRef,useState} from 'react';
+import type {ReactNode} from 'react';
+import {createPortal} from 'react-dom';
+import './context-menu.css';
+export type MenuPoint={x:number;y:number};
+export const pointRect=(p:MenuPoint)=>({left:p.x,right:p.x,top:p.y,bottom:p.y});
+export default function ContextMenu({point,close,children,label,compact=false}:{point:MenuPoint;close:()=>void;children:ReactNode;label:string;compact?:boolean}){
+  const ref=useRef<HTMLDivElement>(null),[position,setPosition]=useState(point);
+  useLayoutEffect(()=>{const place=()=>{const r=ref.current!.getBoundingClientRect();setPosition({x:Math.max(8,Math.min(point.x+6,innerWidth-r.width-8)),y:Math.max(window.sakuyaDesktop?.embedded?36:8,Math.min(point.y+6,innerHeight-r.height-8))});};place();const observer=new ResizeObserver(place);observer.observe(ref.current!);return()=>observer.disconnect();},[point]);
+  useEffect(()=>{const previous=document.activeElement as HTMLElement;ref.current?.querySelector<HTMLElement>('button:not(:disabled)')?.focus();const dismiss=(e:PointerEvent)=>{if(!ref.current?.contains(e.target as Node))close();};const key=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close();}if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();const buttons=[...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];const index=buttons.indexOf(document.activeElement as HTMLButtonElement);buttons[e.key==='Home'?0:e.key==='End'?buttons.length-1:(index+(e.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus();}};const scroll=(e:Event)=>{if(!ref.current?.contains(e.target as Node))close();};document.addEventListener('pointerdown',dismiss,true);document.addEventListener('keydown',key,true);window.addEventListener('resize',close);window.addEventListener('scroll',scroll,true);return()=>{document.removeEventListener('pointerdown',dismiss,true);document.removeEventListener('keydown',key,true);window.removeEventListener('resize',close);window.removeEventListener('scroll',scroll,true);if(previous?.isConnected)previous.focus({preventScroll:true});};},[close]);
+  return createPortal(<div ref={ref} role="menu" aria-label={label} className="context-menu" style={{zoom:compact?.7:1,left:position.x/(compact?.7:1),top:position.y/(compact?.7:1)}} onContextMenu={e=>e.preventDefault()}>{children}</div>,document.body);
+}

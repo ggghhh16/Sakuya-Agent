@@ -29,6 +29,16 @@ class DefaultIn(BaseModel):
     model_id: str = Field(max_length=100)
 
 
+class ExperimentalIn(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    enabled: bool
+
+
+@router.put('/experimental')
+def update_experimental(data: ExperimentalIn):
+    return settings.save_config({'experimental_features': data.enabled})
+
+
 def validate_base(value):
     parsed = urlparse(value)
     if any(ord(c) < 33 for c in value) or '\\' in value:

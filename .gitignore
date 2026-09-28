@@ -15,6 +15,9 @@ node_modules/
 *.sqlite3-*
 provider.json
 credentials.json
+google-client.json
+client_secret*.json
+client-secret*.json
 *.har
 *.pem
 *.key

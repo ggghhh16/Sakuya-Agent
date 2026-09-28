@@ -38,6 +38,7 @@ export function RunDetail({ id, ...props }: PageProps & { id: string }) {
     return () => stream.close();
   }, [id, run?.status]);
   if (query.isLoading) return <Loading />;
+  if (run?.kind === 'diagnosis' && !props.workspace.settings.experimental_features) return <Empty title={tr('实验性功能未开启')} description={tr('请先在设置中开启实验性功能')} action={<button className="button" onClick={()=>props.navigate('settings')}>{tr('前往设置')}</button>} />;
   if (!run) return <Empty title={tr("无法打开任务")} description={query.error?.message || tr("任务不存在")} />;
   async function action(path: string, body?: unknown) {
     setBusy(true);

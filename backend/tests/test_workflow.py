@@ -16,6 +16,7 @@ def create_run(client, **overrides):
 
 
 def test_ticket_to_agent_to_saved_report(client):
+    client.put('/api/settings/experimental', json={'enabled': True})
     ticket = client.post('/api/tickets', json={'title': '升级后查询为空', 'description': '需要调查模型配置变化', 'project_id': 'project_welcome'}).json()
     run = create_run(client, ticket_id=ticket['id'], kind='diagnosis')
     execute(db.claim())
@@ -103,6 +104,7 @@ def test_no_live_run_without_model(client, monkeypatch):
 
 
 def test_validation_and_cross_project_links(client):
+    client.put('/api/settings/experimental', json={'enabled': True})
     assert client.post('/api/projects', json={'name': '另一个项目'}).status_code in (404, 405)
     p = db.put('project', {'name': '历史项目'})
     t = client.post('/api/tickets', json={'title': '不同项目的工单', 'project_id': p['id']}).json()

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, dialog, Tray, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, dialog, Tray, Menu, ipcMain, screen } = require('electron');
 const { join, resolve, dirname } = require('node:path');
 const { existsSync } = require('node:fs');
 const { LocalService } = require('./service.cjs');
@@ -16,10 +16,12 @@ const port = Number(process.env.SAKUYA_PORT || 8120);
 const serviceUrl = `http://127.0.0.1:${port}`;
 const target = devUrl === 'http://127.0.0.1:5173' ? devUrl : serviceUrl;
 let win, tray, service, starting, quitting = false;
+const panelWindows = new Set();
 let keepForBrowser = process.argv.includes('--web');
 if (process.env.SAKUYA_DESKTOP_DATA) app.setPath('userData', process.env.SAKUYA_DESKTOP_DATA);
 
 const { safeExternal } = require('./external.cjs');
+const { restrictNavigation } = require('./navigation.cjs');
 async function ensureService() {
   // The explicit development launcher owns its API/worker separately.
   if (devUrl === 'http://127.0.0.1:5173') return;
@@ -33,7 +35,7 @@ async function ensureService() {
     command: app.isPackaged ? join(process.resourcesPath, 'backend/sakuya-service.exe') : join(root, '.venv/Scripts/python.exe'),
     args: app.isPackaged ? [] : [join(root, 'backend/service.py')],
     webDir: app.isPackaged ? join(process.resourcesPath, 'web') : join(root, 'dist'),
-    envFile: legacy ? join(root, '.env') : join(dataDir, '.env'),
+    envFile: process.env.SAKUYA_ENV_FILE || (legacy ? join(root, '.env') : join(dataDir, '.env')),
   });
   starting = service.start();
   return starting;
@@ -46,7 +48,7 @@ function openWindow() {
   win.webContents.session.setUserAgent(app.userAgentFallback);
   win.webContents.setUserAgent(app.userAgentFallback);
   win.webContents.setWindowOpenHandler(({ url }) => { if (safeExternal(url, target)) void shell.openExternal(url); return { action: 'deny' }; });
-  win.webContents.on('will-navigate', (event, url) => { if (new URL(url).origin !== target) { event.preventDefault(); if (safeExternal(url, target)) void shell.openExternal(url); } });
+  restrictNavigation(win.webContents, target, url => shell.openExternal(url), safeExternal);
   win.webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => {
     callback(allowChallengeStorage(permission, details.requestingUrl, contents.getURL(), target));
   });
@@ -89,19 +91,51 @@ function updateTray() {
     { type: 'separator' }, { label: text.quit, click: () => app.quit() },
   ]));
 }
+
+function trustedWindow(event) {
+  const sender = BrowserWindow.fromWebContents(event.sender);
+  if (!sender || (sender !== win && !panelWindows.has(sender)) || event.senderFrame !== sender.webContents.mainFrame) return null;
+  try { if (new URL(event.senderFrame.url).origin !== target) return null; } catch { return null; }
+  return sender;
+}
+ipcMain.handle('sakuya:open-authorization', async (event, value) => {
+  if (!trustedWindow(event) || typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    const paths = {'accounts.google.com': '/o/oauth2/v2/auth', 'dida365.com': '/oauth/authorize', 'ticktick.com': '/oauth/authorize'};
+    if (url.protocol !== 'https:' || url.username || url.password || url.port || paths[url.hostname] !== url.pathname) return false;
+    await shell.openExternal(url.toString()); return true;
+  } catch {return false;}
+});
+ipcMain.handle('sakuya:detach-panel', async (event, options) => {
+  if (!trustedWindow(event) || !options || typeof options.route !== 'string' || !/^(todos|calendar|research|diagnosis|settings|tickets|(?:run|ticket)\/[A-Za-z0-9_-]{1,100})$/.test(options.route)) return {ok: false, error: 'Invalid panel'};
+  if (panelWindows.size >= 12) return {ok: false, error: 'Too many independent windows'};
+  const point = {x: Number.isFinite(options.x) ? Math.round(options.x) : screen.getCursorScreenPoint().x, y: Number.isFinite(options.y) ? Math.round(options.y) : screen.getCursorScreenPoint().y};
+  const area = screen.getDisplayNearestPoint(point).workArea;
+  const width = Math.min(1100, area.width), height = Math.min(840, area.height);
+  const panel = new BrowserWindow({width, height, x: Math.max(area.x, Math.min(point.x - 120, area.x + area.width - width)), y: Math.max(area.y, Math.min(point.y - 30, area.y + area.height - height)), minWidth: 440, minHeight: 480, title: 'Sakuya', icon: join(__dirname, 'sakuya.ico'), backgroundColor: titleBarColors[theme].color, titleBarStyle: 'hidden', titleBarOverlay: titleBarColors[theme], autoHideMenuBar: true, show: false,
+    webPreferences: {preload: join(__dirname, 'preload.cjs'), additionalArguments: [`--sakuya-language=${language}`], nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true}});
+  panelWindows.add(panel);
+  panel.on('closed', () => panelWindows.delete(panel));
+  panel.webContents.on('page-title-updated', event => {event.preventDefault(); panel.setTitle('Sakuya');});
+  panel.webContents.setWindowOpenHandler(({url}) => {if (safeExternal(url, target)) void shell.openExternal(url); return {action: 'deny'};});
+  restrictNavigation(panel.webContents, target, url => shell.openExternal(url), safeExternal);
+  try {await panel.loadURL(`${target}/?panel=1#${options.route}`); if (!process.env.SAKUYA_TEST) panel.show(); return {ok: true};}
+  catch {panel.destroy(); return {ok: false, error: 'Unable to load panel'};}
+});
+
 ipcMain.on('sakuya:set-theme', (event, value, family = 'sakuya') => {
   if (!['sakuya', 'a', 'notion'].includes(family)) return;
-  if ((value !== 'dark' && value !== 'light') || !win || event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame) return;
+  if ((value !== 'dark' && value !== 'light') || !trustedWindow(event)) return;
   try { if (new URL(event.senderFrame.url).origin !== target) return; } catch { return; }
   theme = value;
   const palettes = { a: { dark: ['#262624', '#ece9e1'], light: ['#faf9f5', '#34332e'] }, notion: { dark: ['#191919', '#eeeeec'], light: ['#ffffff', '#37352f'] } };
   const pair = palettes[family]?.[theme];
   const colors = pair ? { color: pair[0], symbolColor: pair[1], height: 31 } : titleBarColors[theme];
-  win.setTitleBarOverlay(colors);
-  win.setBackgroundColor(colors.color);
+  for (const window of [win, ...panelWindows]) { if (window && !window.isDestroyed()) {window.setTitleBarOverlay(colors); window.setBackgroundColor(colors.color);} }
 });
 ipcMain.on('sakuya:set-language', (event, value) => {
-  if (!validLocale(value) || !win || event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame) return;
+  if (!validLocale(value) || !trustedWindow(event)) return;
   try { if (new URL(event.senderFrame.url).origin !== target) return; } catch { return; }
   language = value;
   saveLocale(app.getPath('userData'), language);

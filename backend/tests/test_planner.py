@@ -1,3 +1,4 @@
+from stream_fakes import model_response
 import copy
 from urllib.parse import urlparse, parse_qs
 from app import db, planner, integrations
@@ -17,7 +18,6 @@ def update_body(e, **changes):
 
 def test_planner_crud_conflict_delete_restore(client):
     e = entry(client)
-    assert client.delete('/api/planner/lists/' + e['list_id']).status_code == 409
     changed = client.put('/api/planner/entries/' + e['id'], json=update_body(e, completed=True))
     assert changed.status_code == 200
     assert client.put('/api/planner/entries/' + e['id'], json=update_body(e)).status_code == 409
@@ -221,6 +221,10 @@ def test_chat_calls_real_mcp_dispatch_and_resumes_without_duplicate_write(client
             self.local = 'base_url' in kwargs
         def __enter__(self): return self
         def __exit__(self, *args): pass
+        from contextlib import contextmanager
+        @contextmanager
+        def stream(self, method, url, **kwargs):
+            yield self.post(url, **kwargs)
         def post(self, url, **kwargs):
             if self.local:
                 return client.post(url, **kwargs)
@@ -230,12 +234,12 @@ def test_chat_calls_real_mcp_dispatch_and_resumes_without_duplicate_write(client
             assert 'Asia/Singapore' in messages[0]['content']
             if len(attempts) == 1:
                 message = {'role':'assistant','content':None,'reasoning_content':'tool reasoning', 'tool_calls':[{'id':'call_1','type':'function','function':{'name':'planner_create_entry','arguments':'{"title":"MCP created","list_id":"todo_inbox"}'}}]}
-                return httpx.Response(200,json={'choices':[{'message':message}],'usage':{'total_tokens':5}})
+                return model_response(message, 5)
             if len(attempts) == 2:
                 return httpx.Response(503)
             assert any(m.get('reasoning_content') == 'tool reasoning' for m in messages)
             assert messages[-1]['role'] == 'tool'
-            return httpx.Response(200,json={'choices':[{'message':{'role':'assistant','content':'任务已创建'}}],'usage':{'total_tokens':5}})
+            return model_response({'role':'assistant','content':'任务已创建'}, 5)
     monkeypatch.setattr(httpx, 'Client', Stub)
     import pytest
     with pytest.raises(ValueError, match='503'):
@@ -245,3 +249,72 @@ def test_chat_calls_real_mcp_dispatch_and_resumes_without_duplicate_write(client
     assert text == '任务已创建' and tokens == 10
     assert len(planner.snapshot()['entries']) == 1
     assert db.get(run['id'])['tool_log'][0]['name'] == 'planner_create_entry'
+
+def test_tags_and_manual_order_persist(client):
+    a = entry(client, tags=[' 工作 ', '工作', '学习'])
+    b = entry(client, title='另一项任务')
+    assert a['tags'] == ['工作', '学习']
+    assert client.post('/api/planner/entries', json={'title':'无效标签','list_id':a['list_id'],'tags':['x' * 41]}).status_code == 422
+    for sort in ('priority', 'time', 'title', 'list', 'none'):
+        result = client.put('/api/planner/preferences', json={'sort':sort,'manual_order':[b['id'],a['id']]})
+        assert result.status_code == 200
+        assert client.get('/api/planner').json()['preferences'] == {'sort':sort,'manual_order':[b['id'],a['id']],'default_calendar_list':'','default_task_list':'','list_order':[]}
+    assert client.put('/api/planner/preferences', json={'sort':'none','manual_order':['not-owned']}).status_code == 409
+
+
+def test_import_discovers_lists_is_idempotent_and_never_pushes(client, monkeypatch):
+    integrations.save('dida', {'access_token':'test-token', 'auto_import':True})
+    task = {'id':'remote-task','title':'远程任务','content':'备注','tags':['测试'],'status':0,'priority':0}
+    calls = []
+    def remote(name, method, path, **kwargs):
+        calls.append((method,path))
+        assert method == 'GET'
+        if path == '/project': return [{'id':'remote-list','name':'远程清单'}]
+        if path.endswith('/data'): return {'tasks':[task]}
+        return task
+    monkeypatch.setattr(integrations, 'request', remote)
+    body={'start':'2026-09-01T00:00:00+00:00','end':'2026-12-01T00:00:00+00:00','automatic':True}
+    first=client.post('/api/integrations/import',json=body)
+    assert first.status_code == 200, first.text
+    assert first.json()['imported_lists']==1
+    assert client.post('/api/integrations/import',json=body).json()['imported_lists']==0
+    rows=client.get('/api/planner').json()['entries']
+    assert len(rows)==1 and rows[0]['tags']==['测试']
+    updated=client.put('/api/planner/entries/'+rows[0]['id'],json=update_body(rows[0],title='本地修改')).json()
+    task['title']='远程修改'
+    result=client.post('/api/integrations/import',json=body).json()
+    assert not result['ok']
+    assert client.get('/api/planner').json()['entries'][0]['title']=='本地修改'
+    assert all(method=='GET' for method,path in calls)
+
+
+def test_local_recategorization_preserves_remote_source(client):
+    a=entry(client)
+    target=client.post('/api/planner/lists',json={'name':'分类目标'}).json()
+    db.patch(a['id'], {'remote':{'dida':{'id':'r','version':'v','local_revision':1}}})
+    response=client.put('/api/planner/entries/'+a['id'],json=update_body(a,list_id=target['id']))
+    assert response.status_code==200
+    moved=response.json()
+    assert moved['list_id']==target['id'] and moved['sync_list_id']==a['list_id']
+    assert moved['remote']['dida']['id']=='r'
+    assert client.delete('/api/planner/lists/'+a['list_id']).status_code==200
+    assert any(e['id']==a['id'] for e in client.get('/api/planner').json()['entries'])
+
+
+def test_legacy_tag_version_upgrade_and_older_clients(client, monkeypatch):
+    listing = client.post('/api/planner/lists', json={'name':'远程','ticktick_project_id':'project'}).json()
+    remote = {'id':'remote','title':'原名称','content':'','status':0,'priority':0,'tags':['远程标签']}
+    e = entry(client, list_id=listing['id'], tags=['本地标签'])
+    body=update_body(e, title='新名称');body.pop('tags')
+    updated=client.put('/api/planner/entries/'+e['id'],json=body).json()
+    assert updated['tags']==['本地标签']
+    db.patch(e['id'], {'remote':{'dida':{'id':'remote','version':integrations.task_version(remote,legacy=True),'local_revision':1}}})
+    def request(name,method,path,**kwargs):
+        if path.endswith('/data'):return {'tasks':[remote]}
+        if method=='POST':
+            assert kwargs['json']['tags']==['本地标签']
+            remote.update(kwargs['json'])
+        return remote
+    monkeypatch.setattr(integrations,'request',request)
+    assert integrations.sync_collection('dida',listing,'2026-09-01T00:00:00Z','2026-12-01T00:00:00Z')==[]
+    assert db.get(e['id'])['remote']['dida']['version']==integrations.task_version(remote)

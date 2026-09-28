@@ -179,6 +179,7 @@ def transition_run(identifier, allowed, changes):
         if item['status'] not in allowed:
             raise ValueError('当前任务状态不支持此操作')
         if item.get('kind') == 'chat' and changes.get('status') == 'queued':
+            changes = {**changes, 'partial_report': ''}
             conversation = con.execute("SELECT body FROM objects WHERE kind='conversation' AND id=?", (item['conversation_id'],)).fetchone()
             if not conversation or json.loads(conversation['body']).get('deleted_at'):
                 raise ValueError('对话已删除')
@@ -215,7 +216,8 @@ def queue_chat(prompt, conversation_id, mode, planner_tools=False, time_zone='UT
         history = []
         # Keep demo responses out of real model context when switching modes.
         for turn in [r for r in turns if r['status'] == 'completed' and r['mode'] == mode][-12:]:
-            history.extend([{'role': 'user', 'content': turn['prompt'][:4000]}, {'role': 'assistant', 'content': turn['report'][:4000]}])
+            from .chat_references import model_prompt
+            history.extend([{'role': 'user', 'content': model_prompt(turn['prompt'][:4000], turn.get('references', []))}, {'role': 'assistant', 'content': turn['report'][:4000]}])
         run = {'id': uid('run'), 'kind': 'chat', 'conversation_id': conversation['id'], 'title': prompt[:100],
                'prompt': prompt, 'mode': mode, 'planner_tools': planner_tools, 'time_zone': time_zone, 'project_id': '', 'history': history, 'status': 'queued',
                'report': '', 'sources': [], 'plan': [], 'tokens': 0, 'error': None, 'experiment': False,

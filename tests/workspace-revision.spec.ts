@@ -24,7 +24,8 @@ test('工作主界面、对称竖线、拖动分栏与权限选择', async ({ pa
   await page.keyboard.press('End'); await expect(divider).toHaveAttribute('aria-valuenow', '70');
   await page.reload(); await expect(divider).toHaveAttribute('aria-valuenow', '70');
   await divider.focus(); await page.keyboard.press('ArrowLeft'); await expect(divider).toHaveAttribute('aria-valuenow', '68');
-  await expect(page.locator('.work-feature .planner-layout')).toHaveCSS('min-width', '680px');
+  await expect(page.locator('.work-feature .planning-split')).toBeVisible();
+  expect((await page.locator('.calendar-board').boundingBox())!.width).toBeGreaterThan(150);
   await page.screenshot({ path: 'test-results/work-resizable.png', fullPage: true, animations: 'disabled' });
   await page.getByRole('button', { name: '收起功能区域' }).click();
   await page.getByRole('button', { name: '权限批准模式', exact: true }).click();

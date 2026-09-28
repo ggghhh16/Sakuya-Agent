@@ -1,3 +1,4 @@
+from stream_fakes import model_response
 import json
 import time
 import httpx
@@ -62,7 +63,7 @@ def test_tool_approval_replay_reject_and_no_duplicate_writes(client, monkeypatch
             message = {'role': 'assistant', 'content': None, 'tool_calls': [{'id': key, 'type': 'function', 'function': {'name': name, 'arguments': json.dumps(args)}} for key, name, args in calls]}
         else:
             message = {'role': 'assistant', 'content': 'Done'}
-        return httpx.Response(200, json={'choices': [{'message': message}]})
+        return model_response(message)
     original = httpx.Client
     monkeypatch.setattr(providers.httpx, 'Client', lambda **kw: original(transport=httpx.MockTransport(handle)))
     queued = client.post('/api/chat', json={'prompt': 'Read, create two lists', 'mode': 'live', 'planner_tools': True, 'model_id': mid, 'approval_mode': mode}).json()

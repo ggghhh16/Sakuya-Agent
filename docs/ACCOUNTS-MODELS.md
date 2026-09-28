@@ -41,7 +41,7 @@
 
 按用户要求，登录和注册页直接显示 Turnstile，不打开系统浏览器。桌面使用实际 Chromium/操作系统版本的统一浏览器标识，在应用初始化时一次设置，不在验证过程中改变；保留 Cookie 和本地存储，仅向本机工作区内的 `https://challenges.cloudflare.com` 验证框授予存储访问权限。摄像头、麦克风等权限仍拒绝。没有修改验证码结果或绕过后端 Siteverify。
 
-新版位于 `release-ui-v4/win-unpacked`。先从托盘选择「退出 Sakuya（停止本地服务）」，再使用根目录快捷方式打开。启动使用新的页面 URL，服务端 HTML 返回 `Cache-Control: no-store`，避免继续显示上一版页面。仍显示旧内容时可按 Ctrl+Shift+R。
+当前桌面包位于 `release-security/win-unpacked`。先从托盘选择「退出 Sakuya（停止本地服务）」，再使用根目录快捷方式打开。启动使用新的页面 URL，服务端 HTML 返回 `Cache-Control: no-store`，避免继续显示上一版页面。仍显示旧内容时可按 Ctrl+Shift+R。
 
 Cloudflare 对嵌入式浏览器的支持有限，这些兼容性调整不代表已经证明真实挑战通过。若依然出现 600010，应继续记录真实运行结果，不能把模拟测试或改用外部浏览器视为内嵌验证修复完成。
 

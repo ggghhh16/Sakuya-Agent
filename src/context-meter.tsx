@@ -3,10 +3,11 @@ import { tr } from './i18n';
 
 // Approximation, not provider-reported usage: match the server's last 12 completed
 // same-mode turns and 4,000-character truncation, with allowance for tool schemas.
-export function estimateContext(turns: ChatTurn[], draft: string, demo: boolean) {
-  const pending = turns.find(t => ['queued', 'running', 'waiting'].includes(t.status))?.prompt || '';
+export function estimateContext(turns: ChatTurn[], draft: string, demo: boolean, references: unknown[] = []) {
+  const active = turns.find(t => ['queued', 'running', 'waiting'].includes(t.status));
+  const pending = (active?.prompt || '') + JSON.stringify(active?.references || []);
   const text = turns.filter(t => t.status === 'completed' && t.mode === (demo ? 'demo' : 'live')).slice(-12)
-    .map(t => t.prompt.slice(0, 4000) + t.report.slice(0, 4000)).join('\n') + pending + draft;
+    .map(t => t.prompt.slice(0, 4000) + JSON.stringify(t.references || []) + t.report.slice(0, 4000)).join('\n') + pending + draft + JSON.stringify(references);
   const wide = (text.match(/[^\u0000-\u007f]/g) || []).length;
   return Math.ceil((text.length - wide) / 4 + wide * 1.5) + (demo ? 128 : 2400);
 }

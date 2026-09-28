@@ -52,7 +52,7 @@ test('我的规划在右侧，日历创建使用带轻微透明和模糊的浮�
   await page.getByRole('button', { name: '我的规划', exact: true }).click();
   await expect(page.locator('.planner-sidebar')).toBeVisible();
   const aside = (await page.locator('.planner-sidebar').boundingBox())!;
-  const main = (await page.locator('.planner-main').boundingBox())!;
+  const main = (await page.locator('.planner-main,.task-main').boundingBox())!;
   expect(aside.x).toBeGreaterThanOrEqual(main.x + main.width - 1);
   await page.getByRole('button', { name: '新建日程', exact: true }).click();
   const dialog = page.locator('.planner-editor-presence .modal');
@@ -68,25 +68,26 @@ test('我的规划在右侧，日历创建使用带轻微透明和模糊的浮�
 });
 
 for (const route of ['todos', 'calendar']) {
-  test(`${route} 我的规划默认隐藏，按钮展开收起并释放空间`, async ({ page }) => {
+  test(`${route} 清单区域展开收起并释放空间`, async ({ page }) => {
     await page.goto('/#' + route);
-    const toggle = page.getByRole('button', { name: '我的规划', exact: true });
+    const toggle = page.getByRole('button', { name: route === 'todos' ? '显示清单区域' : '我的规划', exact: true });
+    if(route === 'todos') await toggle.click();
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await expect(page.locator('.planner-sidebar')).toHaveCount(0);
-    const closedWidth = (await page.locator('.planner-main').boundingBox())!.width;
+    const closedWidth = (await page.locator('.planner-main,.task-main').boundingBox())!.width;
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     const aside = (await page.locator('.planner-sidebar').boundingBox())!;
-    const main = (await page.locator('.planner-main').boundingBox())!;
+    const main = (await page.locator('.planner-main,.task-main').boundingBox())!;
     expect(aside.x).toBeGreaterThanOrEqual(main.x + main.width - 1);
     expect(closedWidth - main.width).toBeGreaterThan(180);
-    if (route === 'todos') expect((await page.locator('.planner-sidebar > .planner-list').boundingBox())!.height).toBeLessThan(60);
+    if (route === 'todos') expect((await page.locator('.task-smart-views button').first().boundingBox())!.height).toBeLessThan(60);
     await page.screenshot({ path: `test-results/${route}-planning-open.png`, animations: 'disabled' });
     await toggle.click();
     await expect(page.locator('.planner-sidebar')).toHaveCount(0);
-    expect((await page.locator('.planner-main').boundingBox())!.width).toBe(closedWidth);
+    expect((await page.locator('.planner-main,.task-main').boundingBox())!.width).toBe(closedWidth);
     await page.screenshot({ path: `test-results/${route}-planning-closed.png`, animations: 'disabled' });
     await toggle.click(); await page.reload();
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(toggle).toHaveAttribute('aria-expanded', route === 'todos' ? 'true' : 'false');
   });
 }

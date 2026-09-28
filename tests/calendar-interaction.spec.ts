@@ -108,7 +108,7 @@ test('显示天数边界及记忆，今天位于最左侧，规划栏切换不�
   const sidebar = page.locator('.planner-sidebar');
   await sidebar.getByRole('button', {name: '任务清单', exact: true}).click();
   await expect(sidebar).toBeVisible();
-  await expect(planning).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('button',{name:'显示清单区域'})).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('button', {name: '新建任务', exact: true})).toHaveText('');
   await sidebar.getByRole('button', {name: '日历', exact: true}).click();
   await expect(sidebar).toBeVisible(); await planning.click();
