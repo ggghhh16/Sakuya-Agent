@@ -6,6 +6,30 @@ A local AI work assistant for managing tasks and calendars. Use chat to review y
 
 Sakuya opens to a minimal dark chat interface. The work view places your task lists and calendar beside the conversation. Your workspace data is stored locally; optional integrations connect selected lists to Google Calendar, Dida, or TickTick.
 
+## See it in action
+
+Three short recordings of the real app, using an isolated local demo workspace. The chat clip uses the built-in **Demo mode**; its reply is not real model output. Task and calendar changes are saved by the local backend.
+
+### 1. Chat and recover a conversation
+
+Send a message, start a new conversation, then reopen the saved chat from history. Reloading preserves the conversation.
+
+![Chat and history: send a demo message and reopen the saved conversation](docs/demos/01-chat.gif)
+
+### 2. Organize a task list
+
+Create a colored list, capture three tasks, set a high priority, and mark a task complete.
+
+![Task lists: create a list, add tasks, set priority, and complete a task](docs/demos/02-tasks.gif)
+
+### 3. Reschedule on the calendar
+
+Drag an event to a new time, resize it to 90 minutes, inspect its details, and switch to the week view.
+
+![Calendar: drag an event, resize its duration, and switch to the week view](docs/demos/03-calendar.gif)
+
+[Recording details and reproduction](docs/demos/README.md)
+
 ## Interface languages
 
 Open the language menu beside the Sakuya title to choose English, Simplified Chinese, or Japanese. Theme settings are beside it; the light/dark toggle remains on the right. Sign-in and registration also include a language button.
