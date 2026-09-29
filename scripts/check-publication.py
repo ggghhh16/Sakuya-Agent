@@ -50,12 +50,21 @@ if os.name == 'nt':
             name, value, _ = winreg.EnumValue(key, index)
             if isinstance(value, str):
                 user_environment[name] = value
-environment = {**user_environment, **dotenv_values(ROOT / '.env'), **os.environ}
-add_secrets(environment)
+project_environment = dotenv_values(ROOT / '.env')
+environment = {**user_environment, **project_environment, **os.environ}
+# Scan shadowed values too: overriding a key does not make its old value public.
+for source in (user_environment, project_environment, os.environ):
+    add_secrets(dict(source))
+for name in ('SAKUYA_ENV_FILE', 'SAKUYA_CLIENT_ENV_FILE'):
+    if environment.get(name) and Path(environment[name]).is_file():
+        add_secrets(dotenv_values(environment[name]))
 storage_roots = {ROOT / '.data', ROOT / '.data-client'}
 for name in ('SAKUYA_DATA_DIR', 'SAKUYA_CLIENT_DATA_DIR'):
     if environment.get(name):
         storage_roots.add(Path(environment[name]))
+for name in ('SAKUYA_DESKTOP_DATA', 'SAKUYA_CLIENT_DESKTOP_DATA'):
+    if environment.get(name):
+        storage_roots.add(Path(environment[name]) / 'workspace')
 if environment.get('APPDATA'):
     storage_roots.update(Path(environment['APPDATA']) / name / 'workspace'
                          for name in ('sakuya-agent', 'Sakuya Agent', 'Sakuya Client'))

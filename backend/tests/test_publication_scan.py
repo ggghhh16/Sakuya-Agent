@@ -48,12 +48,22 @@ def test_publication_scans_client_secrets_and_blocks_client_generated_files(tmp_
     secret = 'synthetic-client-map-security-for-publication'
     (client / 'provider.json').write_text(json.dumps({'security_code': secret}), encoding='utf-8')
     (client / 'notes.txt').write_text('private workspace')
-    (tmp_path / 'payload.txt').write_text(secret, encoding='utf-8')
-    subprocess.run([*command, 'add', 'payload.txt', '.data-client/notes.txt'], cwd=tmp_path, check=True, capture_output=True)
+    custom_secret = 'synthetic-client-custom-env-secret-for-publication'
+    old_secret = 'synthetic-shadowed-secret-for-publication'
+    custom_env = tmp_path / 'custom.env'
+    custom_env.write_text('MODEL_API_KEY=' + custom_secret, encoding='utf-8')
+    (tmp_path / '.env').write_text('MODEL_API_KEY=' + old_secret, encoding='utf-8')
+    for name, value in [('payload.txt', secret), ('custom.txt', custom_secret), ('shadowed.txt', old_secret)]:
+        (tmp_path / name).write_text(value, encoding='utf-8')
+    subprocess.run([*command, 'add', 'payload.txt', 'custom.txt', 'shadowed.txt', '.data-client/notes.txt'], cwd=tmp_path, check=True, capture_output=True)
     result = subprocess.run([sys.executable, str(scripts / 'check-publication.py'), '--staged'],
-                            cwd=tmp_path, env={**os.environ, 'PYTHONUTF8': '1', 'APPDATA': str(tmp_path / 'appdata')}, text=True, capture_output=True)
+                            cwd=tmp_path, env={**os.environ, 'PYTHONUTF8': '1', 'APPDATA': str(tmp_path / 'appdata'),
+                                              'SAKUYA_CLIENT_ENV_FILE': str(custom_env), 'MODEL_API_KEY': 'synthetic-override-for-test'}, text=True, capture_output=True)
     assert result.returncode == 1, result.stderr
     assert secret not in result.stdout
+    assert custom_secret not in result.stdout and old_secret not in result.stdout
     findings = json.loads(result.stdout)['findings']
     assert {'source': 'index', 'path': 'payload.txt', 'rule': 'matches-local-credential'} in findings
+    assert {'source': 'index', 'path': 'custom.txt', 'rule': 'matches-local-credential'} in findings
+    assert {'source': 'index', 'path': 'shadowed.txt', 'rule': 'matches-local-credential'} in findings
     assert {'source': 'index', 'path': '.data-client/notes.txt', 'rule': 'private-path'} in findings

@@ -6,6 +6,8 @@ A local AI work assistant for managing tasks and calendars. Use chat to review y
 
 Sakuya opens to a minimal dark chat interface. The work view places your task lists and calendar beside the conversation. Your workspace data is stored locally; optional integrations connect selected lists to Google Calendar, Dida, or TickTick.
 
+Windows v0.2.1: [Client installer](https://github.com/ggghhh16/Sakuya-Agent/releases/tag/v0.2.1-client) for personal use without a Sakuya login, or [Dev installer](https://github.com/ggghhh16/Sakuya-Agent/releases/tag/v0.2.1) with the complete account and ticket features. Each release includes SHA-256 checksums.
+
 ## See it in action
 
 Three short recordings of the real app, using an isolated local demo workspace. The chat clip uses the built-in **Demo mode**; its reply is not real model output. Task and calendar changes are saved by the local backend.
@@ -44,6 +46,7 @@ Open the language menu beside the Sakuya title to choose English, Simplified Chi
 - **One place to plan work:** create lists, capture tasks, set priorities, and schedule work on a day, week, or month calendar.
 - **AI planning assistant:** ask a tool-capable model to read your current tasks and events, then create or update plans through the local task and calendar tools. Changes use the same workspace as the UI.
 - **Calendar connections:** bind a local list to Google Calendar and Dida or international TickTick, sync changes, and resolve conflicts in the app.
+- **Today Map:** automatically match explicit places in today's tasks and events to buildings, with no building selection required. Classroom numbers remain in your plans while building searches omit them. Your own AMap credentials are required; ambiguous places remain unresolved. See [map behavior and privacy](docs/map-implementation.md).
 - **Chat:** streaming multi-turn conversations, draggable task/calendar references, history search, rename, reorder, soft deletion with undo, and cancellation.
 - **Model settings:** multiple Chat Completions-compatible providers, model discovery, model selection, and optional reasoning effort.
 - **Tasks and calendars:** lists, priorities, day/week/month views, adjustable 1–14 day ranges, all-day events, drag and resize, and five-minute scheduling increments. Calendar editors appear beside events and dismiss on outside clicks. Existing-event edits save on outside clicks. All-day rows expand from a compact summary; focus mode adjusts the visible time range, and middle-button dragging pans the view. Tasks support selection from empty space and bulk actions.
@@ -65,7 +68,7 @@ This repository contains source code, not user data. Windows installers are avai
 
 Choose **Client** for personal use: no Sakuya account or login is required, and tickets and Issue diagnosis are removed. **Dev** retains the original complete application and authentication flow. They use separate installation identities, data folders, and ports. Real AI features still require your own model API configuration. See [edition details](docs/EDITIONS.md); the authentication setup below applies to Dev.
 
-See the [v0.2.0 security review](docs/SECURITY-AUDIT-2026-09-28.md) for current checks and limits.
+See the [v0.2.1 security review](docs/SECURITY-AUDIT-2026-09-29.md) for current checks and limits.
 
 ### Configure authentication first
 
