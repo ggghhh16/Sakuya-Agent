@@ -21,7 +21,7 @@ patterns = {
     "user-home": re.compile(rb"[A-Za-z]:[\\/]+Users[\\/]+(?!Public\b|Default\b)[^\s\"'<>\\/]+", re.I),
 }
 oauth_file = r'(?:google-client|client[_-]secret[^/]*)\.json'
-private_path = re.compile(r"(^|/)(?:\.data|\.venv|\.tools|\.build|dist|release[^/]*|node_modules|test-results|playwright-report|\.codex|__pycache__)(/|$)|\.(?:sqlite3?(?:-.*)?|db(?:-.*)?|pem|key|p12|pfx|lnk|har)$|(^|/)(?:\.env(?:\..*)?|provider\.json|credentials\.json|" + oauth_file + r')$', re.I)
+private_path = re.compile(r"(^|/)(?:\.data(?:-[^/]*)?|\.venv|\.tools|\.build|dist(?:-[^/]*)?|release[^/]*|node_modules|test-results|playwright-report|\.codex|__pycache__)(/|$)|\.(?:sqlite3?(?:-.*)?|db(?:-.*)?|pem|key|p12|pfx|lnk|har)$|(^|/)(?:\.env(?:\..*)?|provider\.json|credentials\.json|" + oauth_file + r')$', re.I)
 findings = []
 local_secrets = set()
 parser = argparse.ArgumentParser()
@@ -33,7 +33,7 @@ args = parser.parse_args()
 def add_secrets(value):
     if isinstance(value, dict):
         for key, item in value.items():
-            if re.search(r'(?:key|token|secret|password)$', key, re.I) and isinstance(item, str) and len(item) >= 8:
+            if re.search(r'(?:key|token|secret|password|security_code|security_js_code)$', key, re.I) and isinstance(item, str) and len(item) >= 8:
                 local_secrets.add(item.encode())
             elif isinstance(item, (dict, list)):
                 add_secrets(item)
@@ -42,22 +42,41 @@ def add_secrets(value):
             add_secrets(item)
 
 
-environment = {**dotenv_values(ROOT / '.env'), **os.environ}
+user_environment = {}
+if os.name == 'nt':
+    import winreg
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, 'Environment') as key:
+        for index in range(winreg.QueryInfoKey(key)[1]):
+            name, value, _ = winreg.EnumValue(key, index)
+            if isinstance(value, str):
+                user_environment[name] = value
+environment = {**user_environment, **dotenv_values(ROOT / '.env'), **os.environ}
 add_secrets(environment)
-oauth_paths = {ROOT / '.data/oauth/google-client.json'}
+storage_roots = {ROOT / '.data', ROOT / '.data-client'}
+for name in ('SAKUYA_DATA_DIR', 'SAKUYA_CLIENT_DATA_DIR'):
+    if environment.get(name):
+        storage_roots.add(Path(environment[name]))
+if environment.get('APPDATA'):
+    storage_roots.update(Path(environment['APPDATA']) / name / 'workspace'
+                         for name in ('sakuya-agent', 'Sakuya Agent', 'Sakuya Client'))
+workspace_dirs = [folder for root in storage_roots if root.is_dir()
+                  for folder in (root, *(root / 'users').glob('*')) if folder.is_dir()]
+for folder in workspace_dirs:
+    if (folder / '.env').is_file():
+        add_secrets(dotenv_values(folder / '.env'))
+oauth_paths = {folder / 'oauth/google-client.json' for folder in workspace_dirs}
 if environment.get('SAKUYA_GOOGLE_CLIENT_FILE'):
     oauth_paths.add(Path(environment['SAKUYA_GOOGLE_CLIENT_FILE']))
 for path in oauth_paths:
     if path.is_file():
         add_secrets(json.loads(path.read_text('utf-8-sig')))
-workspace_dirs = [ROOT / '.data', *(ROOT / '.data/users').glob('*')]
 for path in (folder / 'provider.json' for folder in workspace_dirs if (folder / 'provider.json').is_file()):
     add_secrets(json.loads(path.read_text('utf-8')))
 for path in (folder / 'workspace.sqlite' for folder in workspace_dirs if (folder / 'workspace.sqlite').is_file()):
     con = sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)
     try:
         if con.execute("SELECT 1 FROM sqlite_master WHERE name='objects'").fetchone():
-            for (body,) in con.execute("SELECT body FROM objects WHERE kind='integration_secret'"):
+            for (body,) in con.execute("SELECT body FROM objects WHERE kind IN ('integration_secret', 'map_secret')"):
                 add_secrets(json.loads(body))
     finally:
         con.close()

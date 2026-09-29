@@ -1,10 +1,17 @@
 import { spawnSync } from 'node:child_process';
 import { delimiter, resolve } from 'node:path';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { editionConfig } from './edition-build.mjs';
-const edition = process.argv.find(arg => arg.startsWith('--edition='))?.split('=')[1] || 'dev';
+const requestedEdition = process.argv.find(arg => arg.startsWith('--edition='))?.split('=')[1];
+const edition = requestedEdition || 'dev';
 const config = editionConfig(edition);
-const output = process.argv.slice(2).find(arg => !arg.startsWith('--')) || config.directories.output;
+const workspaceBuild = JSON.parse(readFileSync('package.json', 'utf8')).build;
+if (!requestedEdition) config.win.artifactName = workspaceBuild.win.artifactName;
+// The default workspace shortcuts use package.json's original release directory.
+// Explicit edition builds keep their own release-dev / release-client outputs.
+const output = process.argv.slice(2).find(arg => !arg.startsWith('--')) || (requestedEdition
+  ? config.directories.output
+  : workspaceBuild.directories.output);
 if (!/^release(?:-[a-z0-9]+)*$/.test(output)) throw new Error('Release output must be a release directory directly inside the project.');
 const protect = spawnSync(resolve('.venv/Scripts/python.exe'), ['-c',
   'import sys; from pathlib import Path; sys.path.insert(0,"backend"); from app.private_storage import protect; p=Path(sys.argv[1]).resolve(); assert p.is_relative_to(Path.cwd()); p.mkdir(exist_ok=True); protect(p)', output], { stdio: 'inherit', windowsHide: true });

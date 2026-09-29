@@ -103,6 +103,12 @@ function trustedWindow(event) {
   try { if (new URL(event.senderFrame.url).origin !== target) return null; } catch { return null; }
   return sender;
 }
+ipcMain.handle('sakuya:device-location', async event => {
+  if (!trustedWindow(event)) return {ok:false,reason:'denied'};
+  const result = await require('./location.cjs').deviceLocation();
+  // Do not deliver coordinates after navigation away from the trusted workspace.
+  return trustedWindow(event) ? result : {ok:false,reason:'denied'};
+});
 ipcMain.handle('sakuya:open-authorization', async (event, value) => {
   if (!trustedWindow(event) || typeof value !== 'string') return false;
   try {

@@ -119,10 +119,19 @@ def all_items(kind):
 def patch(identifier, changes):
     with connect() as con:
         con.execute('BEGIN IMMEDIATE')
-        row = con.execute('SELECT body FROM objects WHERE id=?', (identifier,)).fetchone()
+        row = con.execute('SELECT body, kind FROM objects WHERE id=?', (identifier,)).fetchone()
         if not row:
             return None
-        item = {**json.loads(row['body']), **changes, 'updated_at': now()}
+        previous = json.loads(row['body'])
+        item = {**previous, **changes, 'updated_at': now()}
+        # Invalidate building coordinates for every write path, including remote
+        # imports and conflict resolution. Never retain a pin for an old address.
+        if row['kind'] == 'planner_entry' and (previous.get('location', '') != item.get('location', '')
+                or ((previous.get('map_place') or {}).get('auto_input')
+                    and any(previous.get(key, '') != item.get(key, '') for key in ('title', 'notes')))):
+            item['map_place'] = None
+            item['map_resolution'] = None
+            item['map_revision'] = previous.get('map_revision', 0) + 1
         con.execute('UPDATE objects SET body=?, updated_at=? WHERE id=?',
                     (json.dumps(item, ensure_ascii=False), item['updated_at'], identifier))
     return item

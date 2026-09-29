@@ -14,6 +14,8 @@ Sakuya Agent 是一个**本地 AI 任务与日程管理工作助手**。在同�
 
 ## 界面语言
 
+当前源码新增「今日地图」：语言按钮右侧的小地图图标可展开地图，显示今天任务和日程关联的建筑地点。自动识别地点字段、标题或备注中的明确地点并标记匹配建筑，无需选择建筑；支持同楼多项安排合并、本地保存及可选的地点校正；首次使用需要配置自己的高德凭据。使用方式与已验证范围见 [今日地图说明](docs/map-implementation.md)。
+
 主界面右上角的语言按钮展开简体中文、English、日本語列表；登录和注册页也有入口。首次使用跟随浏览器语言，选择后在当前浏览器或桌面配置中保存，刷新后保留。切换不清空草稿，也不翻译用户输入、已有聊天、报告和原始执行日志。
 
 ## 账号与多模型
@@ -46,8 +48,10 @@ git clone https://github.com/ggghhh16/Sakuya-Agent.git
 cd Sakuya-Agent
 .\scripts\setup.ps1
 node scripts/dev.mjs       # 开发服务器与热更新
-node scripts/package.mjs   # 构建网页、独立后端、桌面客户端及双击入口
+node scripts/package.mjs   # 更新现有快捷方式使用的 release-v020/win-unpacked
 ```
+
+默认打包继续更新 `release-v020`，加 `--installer` 可同时生成该目录的安装包。显式使用 `--edition=dev` 或 `--edition=client` 时，分别输出到 `release-dev` 或 `release-client`。
 
 - 开发网页：`http://127.0.0.1:5173`；普通使用入口：`http://127.0.0.1:8120`。
 - `start.ps1` 现在启动打包的桌面应用；`start.ps1 --web` 启动网页版。

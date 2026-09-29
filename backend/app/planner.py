@@ -16,6 +16,7 @@ class Strict(BaseModel):
 
 class ListIn(Strict):
     name: str = Field(min_length=1, max_length=100)
+    map_enabled: bool = False
     color: str = Field(default='#a899ed', pattern=r'^#[0-9a-fA-F]{6}$')
     google_calendar_id: str = Field(default='', max_length=500)
     ticktick_project_id: str = Field(default='', max_length=200)
@@ -155,7 +156,10 @@ def update_list(identifier: str, data: ListIn):
             remote_name = 'google' if field == 'google_calendar_id' else old.get('ticktick_region', 'dida')
             if old.get(field) != getattr(data, field) and any(e['list_id'] == identifier and e.get('remote', {}).get(remote_name) for e in active('planner_entry')):
                 raise HTTPException(409, '该清单已有同步记录，请新建清单绑定其他目标，避免移动或复制远程内容')
-        result = db.patch(identifier, data.model_dump())
+        changes = data.model_dump()
+        if 'map_enabled' not in data.model_fields_set:
+            changes.pop('map_enabled')
+        result = db.patch(identifier, changes)
         if old.get('google_calendar_id') != data.google_calendar_id or old.get('ticktick_project_id') != data.ticktick_project_id:
             for entry in active('planner_entry'):
                 if entry['list_id'] == identifier and entry.get('sync_state') != 'conflict':

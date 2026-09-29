@@ -36,6 +36,8 @@ def test_errors_redact_full_secrets_before_truncating(client, monkeypatch):
     integrations.save('google', {'access_token': 'synthetic-oauth-token'})
     monkeypatch.setenv('SMTP_PASSWORD', 'synthetic-mail-password')
     assert 'synthetic-' not in safe_error(ValueError('synthetic-oauth-token synthetic-mail-password'))
+    db.put('map_secret', {'id': 'amap_config', 'web_key': 'synthetic-map-key', 'security_code': 'synthetic-map-security'})
+    assert 'synthetic-' not in safe_error(ValueError('synthetic-map-key synthetic-map-security'))
 
 
 @pytest.mark.parametrize('length', [None, b'1', str(MAX_BODY + 1).encode()])
@@ -60,8 +62,13 @@ def test_actual_body_limit_precedes_parsing(length):
 def test_security_headers_cover_errors_and_pages(client):
     for result in (client.get('/'), client.get('/api/missing'), client.post('/api/chat', json={})):
         assert result.headers['x-frame-options'] == 'DENY'
+        assert result.headers['permissions-policy'] == 'camera=(), microphone=(), geolocation=(self)'
         assert "frame-ancestors 'none'" in result.headers['content-security-policy']
-        assert "script-src 'self' https://challenges.cloudflare.com;" in result.headers['content-security-policy']
+        policy = result.headers['content-security-policy']
+        scripts = next(d for d in policy.split(';') if d.strip().startswith('script-src')).split()
+        assert scripts == ['script-src', "'self'", "'unsafe-eval'", 'https://challenges.cloudflare.com', 'https://webapi.amap.com', 'https://a.amap.com', 'https://restapi.amap.com', 'https://jsapi-service.amap.com']
+        assert "'unsafe-inline'" not in scripts
+        assert "worker-src 'self' blob:;" in policy
     assert client.get('/api/auth/me').headers['cache-control'] == 'no-store'
 
 

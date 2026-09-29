@@ -51,15 +51,28 @@ test('聚焦范围缩放网格，创建时间保持准确，中键平移不创�
 
 test('聊天在完成前逐步显示，刷新后保留完整回复', async ({page}) => {
   await page.goto('/');
+  // The demo can finish between Playwright assertion polls. Observe actual DOM
+  // changes from before submission so short-lived partial replies are retained.
+  const snapshots: {text: string; canStop: boolean}[] = [];
+  await page.exposeFunction('recordStreamingReply', (snapshot: {text: string; canStop: boolean}) => snapshots.push(snapshot));
+  await page.evaluate(() => {
+    let previous = '';
+    new MutationObserver(() => {
+      const text = document.querySelector('.streaming-reply')?.textContent || '';
+      if (text && text !== previous) {
+        previous = text;
+        void (window as unknown as {recordStreamingReply: (snapshot: {text: string; canStop: boolean}) => Promise<void>})
+          .recordStreamingReply({text, canStop: !!document.querySelector('[aria-label="停止生成"]')});
+      }
+    }).observe(document.body, {subtree: true, childList: true, characterData: true});
+  });
   await page.getByRole('textbox', {name: '聊天消息'}).fill('请演示流式回复');
   await page.getByRole('button', {name: '发送消息', exact: true}).click();
-  const partial = page.locator('.streaming-reply');
-  await expect(partial).toContainText('这是演示回复');
-  await expect(page.getByRole('button', {name: '停止生成'})).toBeVisible();
-  const first = (await partial.textContent())!.length;
-  await expect.poll(async () => (await page.locator('.assistant-content .markdown').textContent())!.length).toBeGreaterThan(first);
+  await expect.poll(() => snapshots.some((snapshot, index) => snapshot.text.includes('这是演示回复') && snapshot.canStop
+    && snapshots.slice(index + 1).some(later => later.text.length > snapshot.text.length))).toBe(true);
   await expect(page.getByRole('button', {name: '停止生成'})).toHaveCount(0);
   const complete = await page.locator('.assistant-content .markdown').textContent();
+  expect(complete!.length).toBeGreaterThan(snapshots[0].text.length);
   await page.reload();
   await expect(page.locator('.assistant-content .markdown')).toHaveText(complete!);
 });

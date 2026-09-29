@@ -28,7 +28,7 @@ async def lifespan(app):
     yield
 
 
-app = FastAPI(title='Sakuya Agent API', version='0.2.0', lifespan=lifespan)
+app = FastAPI(title='Sakuya Agent API', version='0.2.1', lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=['127.0.0.1', 'localhost', 'testserver'])
 
 
@@ -55,6 +55,9 @@ async def local_workspace_guard(request: Request, call_next):
         except ValueError:
             return JSONResponse({'detail': '无效请求'}, status_code=400)
     path = request.url.path
+    is_map_proxy = path == '/_AMapService' or path.startswith('/_AMapService/')
+    if (is_map_proxy or path.startswith('/api/maps/')) and request.headers.get('sec-fetch-site') == 'cross-site':
+        return JSONResponse({'detail': '拒绝跨站地图请求'}, status_code=403)
     if IS_CLIENT and (path == '/human-check' or path.startswith('/api/auth/') and path != '/api/auth/me'
                       or re.match(r'^/api/tickets(?:/|$)', path) or path == '/api/settings/experimental'):
         return JSONResponse({'detail': 'Client 不提供此功能'}, status_code=404)
@@ -69,7 +72,7 @@ async def local_workspace_guard(request: Request, call_next):
             owner = await run_in_threadpool(callback_owner, oauth_callback[1], request.query_params.get('state', ''))
         except HTTPException as exc:
             return JSONResponse({'detail': exc.detail}, status_code=exc.status_code)
-    elif path.startswith('/api/') and path != '/api/health' and not path.startswith('/api/auth/'):
+    elif is_map_proxy or (path.startswith('/api/') and path != '/api/health' and not path.startswith('/api/auth/')):
         user = LOCAL_USER if IS_CLIENT else auth.current_user(request)
         if not user:
             return JSONResponse({'detail': '请先登录'}, status_code=401)
@@ -83,7 +86,7 @@ async def local_workspace_guard(request: Request, call_next):
         response = await call_next(request)
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['Referrer-Policy'] = 'no-referrer'
-    if request.url.path.startswith('/api') or response.headers.get('content-type', '').startswith('text/html'):
+    if request.url.path.startswith('/api') or is_map_proxy or response.headers.get('content-type', '').startswith('text/html'):
         response.headers['Cache-Control'] = 'no-store'
     return response
 
@@ -442,9 +445,12 @@ def test_connection():
 from .planner import router as planner_router
 from .integrations import router as integrations_router
 from .planner_mcp import router as planner_mcp_router
+from .maps import router as maps_router, sdk_router as maps_sdk_router
 app.include_router(planner_router)
 app.include_router(integrations_router)
 app.include_router(planner_mcp_router)
+app.include_router(maps_router)
+app.include_router(maps_sdk_router)
 if not IS_CLIENT:
     app.include_router(auth.router)
 from .model_settings import router as model_settings_router

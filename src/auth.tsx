@@ -8,7 +8,7 @@ import type { User } from './types';
 import { Field, Loading } from './ui';
 
 type Turnstile = { render: (element: HTMLElement, options: Record<string, unknown>) => string; remove: (id: string) => void };
-declare global { interface Window { turnstile?: Turnstile; sakuyaDesktop?: { embedded: boolean; openAuthorization?: (url:string)=>Promise<boolean>; detachPanel?: (options: {route: string; x?: number; y?: number}) => Promise<{ok: boolean; error?: string}>; language?: 'en' | 'zh-CN' | 'ja'; setLanguage?: (locale: 'en' | 'zh-CN' | 'ja') => void; setTheme?: (theme: 'dark' | 'light', family?: 'sakuya' | 'a' | 'notion') => void } } }
+declare global { interface Window { turnstile?: Turnstile; sakuyaDesktop?: { embedded: boolean; getDeviceLocation?: () => Promise<import('./device-location').DeviceLocation>; openAuthorization?: (url:string)=>Promise<boolean>; detachPanel?: (options: {route: string; x?: number; y?: number}) => Promise<{ok: boolean; error?: string}>; language?: 'en' | 'zh-CN' | 'ja'; setLanguage?: (locale: 'en' | 'zh-CN' | 'ja') => void; setTheme?: (theme: 'dark' | 'light', family?: 'sakuya' | 'a' | 'notion') => void } } }
 
 export function humanError(code: string, desktop: boolean) {
   const host = location.hostname;

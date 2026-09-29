@@ -7,16 +7,18 @@ from starlette.responses import JSONResponse
 
 MAX_BODY = 1_000_000
 CSP = (
-    "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; "
-    "style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; "
-    "connect-src 'self' https://challenges.cloudflare.com; "
+    "default-src 'self'; script-src 'self' 'unsafe-eval' https://challenges.cloudflare.com https://webapi.amap.com https://a.amap.com https://restapi.amap.com https://jsapi-service.amap.com; "
+    "style-src 'self' 'unsafe-inline' https://webapi.amap.com; "
+    "img-src 'self' data: blob: https://*.amap.com https://*.autonavi.com; font-src 'self'; "
+    "connect-src 'self' https://challenges.cloudflare.com https://*.amap.com https://*.autonavi.com; "
+    "worker-src 'self' blob:; "
     "frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; "
     "object-src 'none'; base-uri 'none'; form-action 'self'"
 )
 
 
 def safe_error(exc):
-    from . import settings, integrations
+    from . import settings, integrations, db
     # Redact before truncation: secrets crossing the limit must not leak prefixes.
     text = str(exc)
     secrets = [v for k, v in os.environ.items()
@@ -24,6 +26,8 @@ def safe_error(exc):
     config = settings.config()
     secrets.extend(config.get(k, '') for k in ('api_key', 'search_key', 'github_token'))
     secrets.extend(p.get('api_key', '') for p in settings.catalog()[0])
+    map_config = db.get('amap_config', 'map_secret') or {}
+    secrets.extend(map_config.get(k, '') for k in ('js_key', 'web_key', 'security_code'))
     for name in integrations.PROVIDERS:
         saved = integrations.credentials(name)
         secrets.extend(saved.get(k, '') for k in ('client_secret', 'access_token', 'refresh_token', 'oauth_state', 'verifier'))
@@ -50,9 +54,9 @@ class RequestSafetyMiddleware:
                     (b'x-frame-options', b'DENY'),
                     (b'x-content-type-options', b'nosniff'),
                     (b'referrer-policy', b'no-referrer'),
-                    (b'permissions-policy', b'camera=(), microphone=(), geolocation=()'),
+                    (b'permissions-policy', b'camera=(), microphone=(), geolocation=(self)'),
                 ])
-                if scope['path'].startswith('/api'):
+                if scope['path'].startswith('/api') or scope['path'] == '/_AMapService' or scope['path'].startswith('/_AMapService/'):
                     headers = [(k, v) for k, v in headers if k.lower() != b'cache-control']
                     headers.append((b'cache-control', b'no-store'))
                 message = {**message, 'headers': headers}

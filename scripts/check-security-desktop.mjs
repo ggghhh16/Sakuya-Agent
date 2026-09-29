@@ -28,7 +28,8 @@ try {
     const r = await fetch('/');
     return { csp: r.headers.get('content-security-policy'), frame: r.headers.get('x-frame-options') };
   });
-  assert(policy.csp.includes("script-src 'self' https://challenges.cloudflare.com;"));
+  assert(policy.csp.includes("script-src 'self' 'unsafe-eval' https://challenges.cloudflare.com https://webapi.amap.com https://a.amap.com https://restapi.amap.com https://jsapi-service.amap.com;"));
+  assert(!policy.csp.split(';').find(d => d.trim().startsWith('script-src')).includes("'unsafe-inline'"));
   assert.equal(policy.frame, 'DENY');
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
   assert.equal(await page.evaluate(() => {

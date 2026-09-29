@@ -4,6 +4,7 @@ import { AutoImport } from './integration-settings';
 import './panel-interactions.css';
 import ThemeSwitch from './theme-switch';
 import LanguageSwitch from './language-switch';
+import TodayMap from './today-map';
 import { useLocale, tr } from './i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -106,7 +107,7 @@ const navigation = [
 
   return <div className={`app-shell minimal-shell ${detached ? "detached-window" : ""}`}><AutoImport accountId={user.id} toast={toast}/>
     <header className="quiet-header" inert={history || !!modal}>
-      <div className="header-left">{<button className="icon-button" aria-label={tr("打开聊天记录")} title={tr("聊天记录")} onClick={() => { setHoverHistory(false); setHistory(true); }}><PanelLeft size={19} /></button>}<button className="wordmark" onClick={() => navigate('chat')}><img src="/sakuya.svg" alt="" />{productName}</button><ThemeSwitch /><LanguageSwitch /></div>
+      <div className="header-left">{<button className="icon-button" aria-label={tr("打开聊天记录")} title={tr("聊天记录")} onClick={() => { setHoverHistory(false); setHistory(true); }}><PanelLeft size={19} /></button>}<button className="wordmark" onClick={() => navigate('chat')}><img src="/sakuya.svg" alt="" />{productName}</button><ThemeSwitch /><LanguageSwitch /><TodayMap accountId={user.id} navigate={navigate}/></div>
       <div className="header-right">{!isClient && <span className="account-label" title={user.username}>{user.username}{admin ? ` · ${tr("管理员")}` : ''}</span>}{<><button className="icon-button" aria-label={tr("新对话")} title={tr("新对话")} onClick={newChat}><SquarePen size={19} /></button><button className="icon-button" aria-label={tr("设置")} title={tr("设置")} onClick={() => navigate('settings')}><Settings size={19} /></button><ThemeSwitch control="toggle" /></>}{!isClient && <button className="icon-button" aria-label={tr("退出登录")} title={tr("退出登录")} onClick={() => void logout()}><LogOut size={18} /></button>}</div>
     </header>
     {(isChat || isWork) && props ? <div ref={layout} style={{ '--chat-share': `${split}%` } as React.CSSProperties} className={`work-layout ${hasPanel ? 'has-panel' : ''} ${dragging ? 'is-resizing' : ''} feature-${featureSide}`} inert={history || !!modal}>
